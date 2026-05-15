@@ -94,6 +94,9 @@ extern "C"
 #ifdef WITH_MEDIACODEC
 	extern const H264_CONTEXT_SUBSYSTEM g_Subsystem_mediacodec;
 #endif
+#ifdef WITH_OHOS_AVCODEC
+	extern const H264_CONTEXT_SUBSYSTEM g_Subsystem_OHOS_AVCodec;
+#endif
 #if defined(_WIN32) && defined(WITH_MEDIA_FOUNDATION)
 	extern const H264_CONTEXT_SUBSYSTEM g_Subsystem_MF;
 #endif
