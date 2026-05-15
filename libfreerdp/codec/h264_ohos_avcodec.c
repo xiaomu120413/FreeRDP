@@ -676,15 +676,22 @@ static BOOL ohos_avcodec_open_decoder(H264_CONTEXT* h264, H264_CONTEXT_OHOS_AVCO
 	sys->outputStride = WINPR_ASSERTING_INT_CAST(int32_t, h264->width);
 	sys->outputSliceHeight = WINPR_ASSERTING_INT_CAST(int32_t, h264->height);
 
-	if (h264->ohosSurfaceModeAllowed &&
-	    ohos_avcodec_get_output_surface(&outputSurface, &surfaceWidth, &surfaceHeight))
+	if (h264->ohosSurfaceModeAllowed)
 	{
+		if (!ohos_avcodec_get_output_surface(&outputSurface, &surfaceWidth, &surfaceHeight))
+		{
+			WLog_Print(h264->log, WLOG_WARN,
+			           "OHOS AVCodec AVC420 surface mode required but no output surface is configured");
+			return FALSE;
+		}
+
 		if (ohos_avcodec_configure_decoder(h264, sys, 0, FALSE, outputSurface))
 			goto success;
 
 		WLog_Print(h264->log, WLOG_WARN,
-		           "OHOS AVCodec surface mode unavailable for %ux%u surface=%ux%u; trying buffer mode",
+		           "OHOS AVCodec AVC420 surface mode unavailable for %ux%u surface=%ux%u",
 		           h264->width, h264->height, surfaceWidth, surfaceHeight);
+		return FALSE;
 	}
 
 	for (size_t x = 0; x < ARRAYSIZE(formats); x++)
@@ -760,6 +767,8 @@ static BOOL ohos_avcodec_init(H264_CONTEXT* h264)
 	H264_CONTEXT_OHOS_AVCODEC* sys = NULL;
 
 	if (!h264 || h264->Compressor)
+		return FALSE;
+	if (!h264->ohosSurfaceModeAllowed)
 		return FALSE;
 
 	sys = (H264_CONTEXT_OHOS_AVCODEC*)calloc(1, sizeof(H264_CONTEXT_OHOS_AVCODEC));

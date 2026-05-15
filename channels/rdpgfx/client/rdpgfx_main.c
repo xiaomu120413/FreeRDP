@@ -463,6 +463,17 @@ static UINT rdpgfx_recv_caps_confirm_pdu(GENERIC_CHANNEL_CALLBACK* callback, wSt
 	           avc420 ? "yes" : "no", avc444 ? "yes" : "no",
 	           (capsSet.flags & RDPGFX_CAPS_FLAG_AVC_THINCLIENT) ? "yes" : "no");
 
+	const BOOL requireAvc420 =
+	    freerdp_settings_get_bool(gfx->rdpcontext->settings, FreeRDP_GfxH264) &&
+	    !freerdp_settings_get_bool(gfx->rdpcontext->settings, FreeRDP_GfxAVC444) &&
+	    !freerdp_settings_get_bool(gfx->rdpcontext->settings, FreeRDP_GfxAVC444v2);
+	if (requireAvc420 && !avc420)
+	{
+		WLog_Print(gfx->base.log, WLOG_ERROR,
+		           "Server did not confirm required RDPGFX AVC420 surface mode; refusing buffer/AVC444 fallback");
+		return ERROR_NOT_SUPPORTED;
+	}
+
 	if (!context)
 		return ERROR_BAD_CONFIGURATION;
 

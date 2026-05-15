@@ -734,11 +734,21 @@ static BOOL h264_context_init(H264_CONTEXT* h264)
 		if (!subsystem || !subsystem->Init)
 			break;
 
+#ifdef WITH_OHOS_AVCODEC
+		if (h264->ohosSurfaceModeAllowed && (subsystem != &g_Subsystem_OHOS_AVCodec))
+			continue;
+#endif
+
 		if (subsystem->Init(h264))
 		{
 			h264->subsystem = subsystem;
 			return TRUE;
 		}
+
+#ifdef WITH_OHOS_AVCODEC
+		if (h264->ohosSurfaceModeAllowed && (subsystem == &g_Subsystem_OHOS_AVCodec))
+			return FALSE;
+#endif
 	}
 
 	return FALSE;
