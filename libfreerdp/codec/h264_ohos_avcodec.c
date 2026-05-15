@@ -52,8 +52,6 @@ typedef struct
 	int32_t outputPixelFormat;
 	int32_t outputStride;
 	int32_t outputSliceHeight;
-	BYTE* callbackBuffer;
-	size_t callbackBufferSize;
 	BYTE* displayBuffer;
 	size_t displayBufferSize;
 	size_t readySize;
@@ -181,7 +179,7 @@ static BOOL ohos_avcodec_copy_i420_to_callback(H264_CONTEXT_OHOS_AVCODEC* sys, c
 	BYTE* dstV = NULL;
 	size_t lastRead = 0;
 
-	if (!ohos_avcodec_ensure_buffer(&sys->callbackBuffer, &sys->callbackBufferSize, required))
+	if (!ohos_avcodec_ensure_buffer(&sys->displayBuffer, &sys->displayBufferSize, required))
 		return FALSE;
 
 	lastRead = (size_t)(srcV - src) + ((uvHeight > 0) ? ((size_t)(uvHeight - 1) * uvStride) : 0) +
@@ -189,9 +187,9 @@ static BOOL ohos_avcodec_copy_i420_to_callback(H264_CONTEXT_OHOS_AVCODEC* sys, c
 	if ((srcSize > 0) && (lastRead > srcSize))
 		return FALSE;
 
-	dstY = sys->callbackBuffer;
-	dstU = sys->callbackBuffer + ySize;
-	dstV = sys->callbackBuffer + ySize + uvSize;
+	dstY = sys->displayBuffer;
+	dstU = sys->displayBuffer + ySize;
+	dstV = sys->displayBuffer + ySize + uvSize;
 
 	for (UINT32 y = 0; y < sys->height; y++)
 		CopyMemory(&dstY[(size_t)y * sys->width], &srcY[(size_t)y * srcStride], sys->width);
@@ -222,7 +220,7 @@ static BOOL ohos_avcodec_copy_nvxx_to_callback(H264_CONTEXT_OHOS_AVCODEC* sys, c
 	BYTE* dstV = NULL;
 	size_t lastRead = 0;
 
-	if (!ohos_avcodec_ensure_buffer(&sys->callbackBuffer, &sys->callbackBufferSize, required))
+	if (!ohos_avcodec_ensure_buffer(&sys->displayBuffer, &sys->displayBufferSize, required))
 		return FALSE;
 
 	lastRead = (size_t)(srcUV - src) + ((uvHeight > 0) ? ((size_t)(uvHeight - 1) * srcStride) : 0) +
@@ -230,9 +228,9 @@ static BOOL ohos_avcodec_copy_nvxx_to_callback(H264_CONTEXT_OHOS_AVCODEC* sys, c
 	if ((srcSize > 0) && (lastRead > srcSize))
 		return FALSE;
 
-	dstY = sys->callbackBuffer;
-	dstU = sys->callbackBuffer + ySize;
-	dstV = sys->callbackBuffer + ySize + uvSize;
+	dstY = sys->displayBuffer;
+	dstU = sys->displayBuffer + ySize;
+	dstV = sys->displayBuffer + ySize + uvSize;
 
 	for (UINT32 y = 0; y < sys->height; y++)
 		CopyMemory(&dstY[(size_t)y * sys->width], &srcY[(size_t)y * srcStride], sys->width);
@@ -374,10 +372,6 @@ static BOOL ohos_avcodec_wait_for_output(H264_CONTEXT* h264, H264_CONTEXT_OHOS_A
 	if (!sys->outputReady || (sys->asyncError != 0))
 		return FALSE;
 
-	if (!ohos_avcodec_ensure_buffer(&sys->displayBuffer, &sys->displayBufferSize, sys->readySize))
-		return FALSE;
-
-	CopyMemory(sys->displayBuffer, sys->callbackBuffer, sys->readySize);
 	sys->outputReady = FALSE;
 	ohos_avcodec_set_h264_output(h264, sys);
 	return TRUE;
@@ -629,7 +623,7 @@ success:
 	if (InterlockedCompareExchange(&g_ohos_avcodec_active_logged, 1, 0) == 0)
 	{
 		WLog_Print(h264->log, WLOG_INFO,
-		           "OHOS AVCodec H264 decoder active: %ux%u format=%d stride=%d slice=%d async-buffer",
+		           "OHOS AVCodec H264 decoder active: %ux%u format=%d stride=%d slice=%d async-buffer single-copy",
 		           h264->width, h264->height, sys->outputPixelFormat, sys->outputStride,
 		           sys->outputSliceHeight);
 	}
@@ -673,7 +667,6 @@ static void ohos_avcodec_uninit(H264_CONTEXT* h264)
 		pthread_mutex_destroy(&sys->lock);
 	}
 
-	free(sys->callbackBuffer);
 	free(sys->displayBuffer);
 	free(sys);
 	h264->pSystemData = NULL;
