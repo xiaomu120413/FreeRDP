@@ -78,7 +78,8 @@ typedef struct
 	UINT32 inputCount;
 } H264_CONTEXT_OHOS_AVCODEC;
 
-static volatile LONG g_ohos_avcodec_active_logged = 0;
+static volatile LONG g_ohos_avcodec_buffer_active_logged = 0;
+static volatile LONG g_ohos_avcodec_surface_active_logged = 0;
 static pthread_mutex_t g_ohos_avcodec_surface_lock = PTHREAD_MUTEX_INITIALIZER;
 static OHNativeWindow* g_ohos_avcodec_surface_window = NULL;
 static UINT32 g_ohos_avcodec_surface_width = 0;
@@ -664,6 +665,7 @@ static BOOL ohos_avcodec_open_decoder(H264_CONTEXT* h264, H264_CONTEXT_OHOS_AVCO
 	static const int32_t formats[] = { AV_PIXEL_FORMAT_YUVI420, AV_PIXEL_FORMAT_NV12,
 		                               AV_PIXEL_FORMAT_NV21 };
 	OHNativeWindow* outputSurface = NULL;
+	volatile LONG* activeLogged = NULL;
 	UINT32 surfaceWidth = 0;
 	UINT32 surfaceHeight = 0;
 
@@ -709,7 +711,9 @@ static BOOL ohos_avcodec_open_decoder(H264_CONTEXT* h264, H264_CONTEXT_OHOS_AVCO
 	return FALSE;
 
 success:
-	if (InterlockedCompareExchange(&g_ohos_avcodec_active_logged, 1, 0) == 0)
+	activeLogged =
+	    sys->surfaceMode ? &g_ohos_avcodec_surface_active_logged : &g_ohos_avcodec_buffer_active_logged;
+	if (InterlockedCompareExchange(activeLogged, 1, 0) == 0)
 	{
 		WLog_Print(h264->log, WLOG_INFO,
 		           "OHOS AVCodec H264 decoder active: %ux%u mode=%s format=%d stride=%d slice=%d async-buffer single-copy",
@@ -767,8 +771,6 @@ static BOOL ohos_avcodec_init(H264_CONTEXT* h264)
 	H264_CONTEXT_OHOS_AVCODEC* sys = NULL;
 
 	if (!h264 || h264->Compressor)
-		return FALSE;
-	if (!h264->ohosSurfaceModeAllowed)
 		return FALSE;
 
 	sys = (H264_CONTEXT_OHOS_AVCODEC*)calloc(1, sizeof(H264_CONTEXT_OHOS_AVCODEC));
