@@ -336,17 +336,17 @@ static size_t rdpsnd_ohos_fill_audio_buffer(rdpsndOhosPlugin* ohos, void* audioD
 	return copied;
 }
 
-static int32_t rdpsnd_ohos_on_write_data_legacy(
+static OH_AudioData_Callback_Result rdpsnd_ohos_on_write_data(
     WINPR_ATTR_UNUSED OH_AudioRenderer* renderer, void* userData, void* audioData,
     int32_t audioDataSize)
 {
 	rdpsndOhosPlugin* ohos = (rdpsndOhosPlugin*)userData;
 
 	if (!ohos || !audioData || (audioDataSize <= 0))
-		return 0;
+		return AUDIO_DATA_CALLBACK_RESULT_INVALID;
 
 	(void)rdpsnd_ohos_fill_audio_buffer(ohos, audioData, audioDataSize);
-	return audioDataSize;
+	return AUDIO_DATA_CALLBACK_RESULT_VALID;
 }
 
 static int32_t rdpsnd_ohos_on_stream_event(WINPR_ATTR_UNUSED OH_AudioRenderer* renderer,
@@ -706,13 +706,19 @@ static BOOL rdpsnd_ohos_open(rdpsndDevicePlugin* device, const AUDIO_FORMAT* for
 		}
 	}
 
-	callbacks.OH_AudioRenderer_OnWriteData = rdpsnd_ohos_on_write_data_legacy;
+	callbacks.OH_AudioRenderer_OnWriteData = NULL;
 	callbacks.OH_AudioRenderer_OnStreamEvent = rdpsnd_ohos_on_stream_event;
 	callbacks.OH_AudioRenderer_OnInterruptEvent = rdpsnd_ohos_on_interrupt;
 	callbacks.OH_AudioRenderer_OnError = rdpsnd_ohos_on_error;
 
 	stage = "OH_AudioStreamBuilder_SetRendererCallback";
 	rc = OH_AudioStreamBuilder_SetRendererCallback(builder, callbacks, ohos);
+	if (rc != AUDIOSTREAM_SUCCESS)
+		goto fail;
+
+	stage = "OH_AudioStreamBuilder_SetRendererWriteDataCallback";
+	rc = OH_AudioStreamBuilder_SetRendererWriteDataCallback(builder, rdpsnd_ohos_on_write_data,
+	                                                       ohos);
 	if (rc != AUDIOSTREAM_SUCCESS)
 		goto fail;
 
