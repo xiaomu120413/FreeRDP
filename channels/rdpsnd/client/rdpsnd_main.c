@@ -128,6 +128,20 @@ static UINT64 g_wave2PduCount = 0;
 static UINT64 g_closePduCount = 0;
 static UINT64 g_setVolumePduCount = 0;
 static UINT64 g_unknownPduCount = 0;
+static UINT64 g_staticInitializedCount = 0;
+static UINT64 g_staticConnectedCount = 0;
+static UINT64 g_staticOpenSucceededCount = 0;
+static UINT64 g_staticOpenFailedCount = 0;
+static UINT64 g_staticDisconnectedCount = 0;
+static UINT64 g_staticDataReceivedCount = 0;
+static UINT64 g_dynamicInitializedCount = 0;
+static UINT64 g_dynamicNewChannelCount = 0;
+static UINT64 g_dynamicOpenCount = 0;
+static UINT64 g_dynamicCloseCount = 0;
+static UINT64 g_dynamicDataReceivedCount = 0;
+static UINT64 g_processConnectCount = 0;
+static UINT64 g_processConnectStaticCount = 0;
+static UINT64 g_processConnectDynamicCount = 0;
 static UINT16 g_lastClientFormatCount = 0;
 static UINT16 g_lastWaveFormatNo = 0;
 static UINT16 g_lastWaveBodySize = 0;
@@ -135,17 +149,28 @@ static BYTE g_lastMsgType = 0;
 
 FREERDP_API const char* freerdp_rdpsnd_client_get_diagnostics(void)
 {
-	static char buffer[512];
+	static char buffer[1100];
 	(void)snprintf(buffer, sizeof(buffer),
 	               "rdpsnd pdu: serverFormats=%" PRIu64 " clientFormatsSent=%" PRIu64
 	               " lastClientFormats=%" PRIu16 " training=%" PRIu64
 	               " waveInfo=%" PRIu64 " wavePayload=%" PRIu64 " wave2=%" PRIu64
 	               " close=%" PRIu64 " setVolume=%" PRIu64 " unknown=%" PRIu64
-	               " lastWaveFormat=%" PRIu16 " lastWaveBody=%" PRIu16 " lastMsg=%" PRIu8,
+	               " lastWaveFormat=%" PRIu16 " lastWaveBody=%" PRIu16 " lastMsg=%" PRIu8
+	               " events=staticInit:%" PRIu64 " staticConnected:%" PRIu64
+	               " staticOpenOk:%" PRIu64 " staticOpenFail:%" PRIu64
+	               " staticDisconnected:%" PRIu64 " staticData:%" PRIu64
+	               " dynamicInit:%" PRIu64 " dynamicNew:%" PRIu64
+	               " dynamicOpen:%" PRIu64 " dynamicClose:%" PRIu64
+	               " dynamicData:%" PRIu64 " processConnect:%" PRIu64 "/%" PRIu64 "/%" PRIu64,
 	               g_serverFormatPduCount, g_clientFormatSendCount, g_lastClientFormatCount,
 	               g_trainingPduCount, g_waveInfoPduCount, g_wavePayloadPduCount,
 	               g_wave2PduCount, g_closePduCount, g_setVolumePduCount, g_unknownPduCount,
-	               g_lastWaveFormatNo, g_lastWaveBodySize, g_lastMsgType);
+	               g_lastWaveFormatNo, g_lastWaveBodySize, g_lastMsgType, g_staticInitializedCount,
+	               g_staticConnectedCount, g_staticOpenSucceededCount, g_staticOpenFailedCount,
+	               g_staticDisconnectedCount, g_staticDataReceivedCount, g_dynamicInitializedCount,
+	               g_dynamicNewChannelCount, g_dynamicOpenCount, g_dynamicCloseCount,
+	               g_dynamicDataReceivedCount, g_processConnectCount, g_processConnectStaticCount,
+	               g_processConnectDynamicCount);
 	return buffer;
 }
 
@@ -1104,6 +1129,11 @@ static UINT rdpsnd_process_connect(rdpsndPlugin* rdpsnd)
 	UINT status = ERROR_INTERNAL_ERROR;
 	WINPR_ASSERT(rdpsnd);
 	rdpsnd->latency = 0;
+	g_processConnectCount++;
+	if (rdpsnd->dynamic)
+		g_processConnectDynamicCount++;
+	else
+		g_processConnectStaticCount++;
 	args = (const ADDIN_ARGV*)rdpsnd->channelEntryPoints.pExtendedData;
 
 	if (args)
@@ -1203,6 +1233,11 @@ static UINT rdpsnd_virtual_channel_event_data_received(rdpsndPlugin* plugin, voi
                                                        UINT32 dataLength, UINT32 totalLength,
                                                        UINT32 dataFlags)
 {
+	if (plugin && plugin->dynamic)
+		g_dynamicDataReceivedCount++;
+	else
+		g_staticDataReceivedCount++;
+
 	if ((dataFlags & CHANNEL_FLAG_SUSPEND) || (dataFlags & CHANNEL_FLAG_RESUME))
 		return CHANNEL_RC_OK;
 
@@ -1311,21 +1346,27 @@ static UINT rdpsnd_virtual_channel_event_connected(rdpsndPlugin* rdpsnd, LPVOID 
 
 	WINPR_ASSERT(rdpsnd);
 	WINPR_ASSERT(!rdpsnd->dynamic);
+	g_staticConnectedCount++;
 
 	status = rdpsnd->channelEntryPoints.pVirtualChannelOpenEx(
 	    rdpsnd->InitHandle, &opened, rdpsnd->channelDef.name, rdpsnd_virtual_channel_open_event_ex);
 
 	if (status != CHANNEL_RC_OK)
 	{
+		g_staticOpenFailedCount++;
 		WLog_ERR(TAG, "%s pVirtualChannelOpenEx failed with %s [%08" PRIX32 "]",
 		         rdpsnd_is_dyn_str(rdpsnd->dynamic), WTSErrorToString(status), status);
 		goto fail;
 	}
 
 	if (rdpsnd_process_connect(rdpsnd) != CHANNEL_RC_OK)
+	{
+		g_staticOpenFailedCount++;
 		goto fail;
+	}
 
 	rdpsnd->OpenHandle = opened;
+	g_staticOpenSucceededCount++;
 	return CHANNEL_RC_OK;
 fail:
 	if (opened != 0)
@@ -1529,6 +1570,7 @@ static UINT rdpsnd_virtual_channel_event_initialized(rdpsndPlugin* rdpsnd)
 {
 	if (!rdpsnd)
 		return ERROR_INVALID_PARAMETER;
+	g_staticInitializedCount++;
 
 	if (!allocate_internals(rdpsnd))
 		return CHANNEL_RC_NO_MEMORY;
@@ -1577,6 +1619,7 @@ static VOID VCAPITYPE rdpsnd_virtual_channel_init_event_ex(LPVOID lpUserParam, L
 			break;
 
 		case CHANNEL_EVENT_DISCONNECTED:
+			g_staticDisconnectedCount++;
 			error = rdpsnd_virtual_channel_event_disconnected(plugin);
 			break;
 
@@ -1695,6 +1738,7 @@ static UINT rdpsnd_on_open(IWTSVirtualChannelCallback* pChannelCallback)
 
 	rdpsnd = (rdpsndPlugin*)callback->plugin;
 	WINPR_ASSERT(rdpsnd);
+	g_dynamicOpenCount++;
 
 	if (rdpsnd->OnOpenCalled)
 		return CHANNEL_RC_OK;
@@ -1719,6 +1763,7 @@ static UINT rdpsnd_on_data_received(IWTSVirtualChannelCallback* pChannelCallback
 		return ERROR_INVALID_PARAMETER;
 	plugin = (rdpsndPlugin*)callback->plugin;
 	WINPR_ASSERT(plugin);
+	g_dynamicDataReceivedCount++;
 
 	copy = StreamPool_Take(plugin->pool, len);
 	if (!copy)
@@ -1754,6 +1799,7 @@ static UINT rdpsnd_on_close(IWTSVirtualChannelCallback* pChannelCallback)
 
 	rdpsnd = (rdpsndPlugin*)callback->plugin;
 	WINPR_ASSERT(rdpsnd);
+	g_dynamicCloseCount++;
 
 	rdpsnd->OnOpenCalled = FALSE;
 	if (rdpsnd->device)
@@ -1794,6 +1840,7 @@ static UINT rdpsnd_on_new_channel_connection(IWTSListenerCallback* pListenerCall
 		WLog_ERR(TAG, "%s calloc failed!", rdpsnd_is_dyn_str(TRUE));
 		return CHANNEL_RC_NO_MEMORY;
 	}
+	g_dynamicNewChannelCount++;
 
 	callback->iface.OnOpen = rdpsnd_on_open;
 	callback->iface.OnDataReceived = rdpsnd_on_data_received;
@@ -1812,6 +1859,7 @@ static UINT rdpsnd_plugin_initialize(IWTSPlugin* pPlugin, IWTSVirtualChannelMana
 	rdpsndPlugin* rdpsnd = (rdpsndPlugin*)pPlugin;
 	WINPR_ASSERT(rdpsnd);
 	WINPR_ASSERT(pChannelMgr);
+	g_dynamicInitializedCount++;
 	if (rdpsnd->initialized)
 	{
 		WLog_ERR(TAG, "[%s] channel initialized twice, aborting", RDPSND_DVC_CHANNEL_NAME);
