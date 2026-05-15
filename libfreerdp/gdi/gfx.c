@@ -804,7 +804,8 @@ static INT32 gdi_SurfaceCommand_AVC444_OhosSurfaces(gdiGfxSurface* surface,
                                                     const RDPGFX_AVC420_BITMAP_STREAM* avc1,
                                                     const RDPGFX_AVC420_BITMAP_STREAM* avc2,
                                                     const RDPGFX_H264_METABLOCK* meta1,
-                                                    const RDPGFX_H264_METABLOCK* meta2)
+                                                    const RDPGFX_H264_METABLOCK* meta2,
+                                                    UINT32 codecId)
 {
 	INT32 rc = -1;
 	static BOOL routeLogged = FALSE;
@@ -833,6 +834,9 @@ static INT32 gdi_SurfaceCommand_AVC444_OhosSurfaces(gdiGfxSurface* surface,
 		          surface->surfaceId, surface->width, surface->height);
 		routeLogged = TRUE;
 	}
+	if (rc == 0)
+		h264_context_ohos_avc444_notify_frame(surface->surfaceId, surface->width, surface->height,
+		                                      bs->LC, codecId);
 	return rc;
 }
 #endif
@@ -905,7 +909,8 @@ static UINT gdi_SurfaceCommand_AVC444(rdpGdi* gdi, RdpgfxClientContext* context,
 	meta2 = &avc2->meta;
 
 #if defined(WITH_OHOS_AVCODEC)
-	rc = gdi_SurfaceCommand_AVC444_OhosSurfaces(surface, bs, avc1, avc2, meta1, meta2);
+	rc = gdi_SurfaceCommand_AVC444_OhosSurfaces(surface, bs, avc1, avc2, meta1, meta2,
+	                                           cmd->codecId);
 	if (rc == 0)
 		goto surfaceDecoded;
 	else if (rc != -1002)

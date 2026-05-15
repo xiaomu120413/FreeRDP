@@ -91,6 +91,8 @@ static UINT32 g_ohos_avcodec_avc444_width = 0;
 static UINT32 g_ohos_avcodec_avc444_height = 0;
 static BOOL g_ohos_avcodec_avc444_enabled = FALSE;
 static BOOL g_ohos_avcodec_avc444_surface_route_enabled = FALSE;
+static pfnH264OhosAvc444FrameCallback g_ohos_avcodec_avc444_frame_callback = NULL;
+static void* g_ohos_avcodec_avc444_frame_callback_user_data = NULL;
 
 FREERDP_API BOOL freerdp_ohos_avcodec_set_output_surface(void* window, UINT32 width, UINT32 height,
                                                          BOOL enabled)
@@ -122,6 +124,16 @@ FREERDP_API BOOL freerdp_ohos_avcodec_set_avc444_surface_route_enabled(BOOL enab
 {
 	pthread_mutex_lock(&g_ohos_avcodec_surface_lock);
 	g_ohos_avcodec_avc444_surface_route_enabled = enabled;
+	pthread_mutex_unlock(&g_ohos_avcodec_surface_lock);
+	return TRUE;
+}
+
+FREERDP_API BOOL freerdp_ohos_avcodec_set_avc444_frame_callback(
+    pfnH264OhosAvc444FrameCallback callback, void* userData)
+{
+	pthread_mutex_lock(&g_ohos_avcodec_surface_lock);
+	g_ohos_avcodec_avc444_frame_callback = callback;
+	g_ohos_avcodec_avc444_frame_callback_user_data = userData;
 	pthread_mutex_unlock(&g_ohos_avcodec_surface_lock);
 	return TRUE;
 }
@@ -174,6 +186,21 @@ BOOL h264_context_ohos_avc444_surface_route_enabled(UINT32 width, UINT32 height)
 	          (width > 0) && (height > 0);
 	pthread_mutex_unlock(&g_ohos_avcodec_surface_lock);
 	return enabled;
+}
+
+void h264_context_ohos_avc444_notify_frame(UINT32 surfaceId, UINT32 width, UINT32 height,
+                                           UINT32 op, UINT32 codecId)
+{
+	pfnH264OhosAvc444FrameCallback callback = NULL;
+	void* userData = NULL;
+
+	pthread_mutex_lock(&g_ohos_avcodec_surface_lock);
+	callback = g_ohos_avcodec_avc444_frame_callback;
+	userData = g_ohos_avcodec_avc444_frame_callback_user_data;
+	pthread_mutex_unlock(&g_ohos_avcodec_surface_lock);
+
+	if (callback)
+		callback(surfaceId, width, height, op, codecId, userData);
 }
 
 static void ohos_avcodec_make_deadline(struct timespec* deadline, UINT32 timeoutMs)

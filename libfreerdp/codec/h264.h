@@ -48,6 +48,10 @@ extern "C"
 		H264_OHOS_SURFACE_AVC444_CHROMA = 2
 	} H264_OHOS_SURFACE_TARGET;
 
+	typedef void (*pfnH264OhosAvc444FrameCallback)(UINT32 surfaceId, UINT32 width,
+	                                               UINT32 height, UINT32 op, UINT32 codecId,
+	                                               void* userData);
+
 	struct S_H264_CONTEXT_SUBSYSTEM
 	{
 		const char* name;
@@ -116,6 +120,9 @@ extern "C"
 #ifdef WITH_OHOS_AVCODEC
 	FREERDP_LOCAL BOOL h264_context_ohos_avc444_surface_route_enabled(UINT32 width,
 	                                                                  UINT32 height);
+	FREERDP_LOCAL void h264_context_ohos_avc444_notify_frame(UINT32 surfaceId, UINT32 width,
+	                                                         UINT32 height, UINT32 op,
+	                                                         UINT32 codecId);
 #endif
 
 #ifdef WITH_MEDIACODEC
