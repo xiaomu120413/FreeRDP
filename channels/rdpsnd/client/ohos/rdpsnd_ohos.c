@@ -23,6 +23,19 @@
 
 #include "rdpsnd_main.h"
 
+static UINT64 g_registeredCount = 0;
+static UINT64 g_openCount = 0;
+static UINT64 g_closeCount = 0;
+static UINT64 g_playCount = 0;
+static UINT64 g_playBytes = 0;
+static UINT64 g_callbackCount = 0;
+static UINT64 g_renderedBytes = 0;
+static UINT64 g_underrunBytes = 0;
+static UINT32 g_lastRate = 0;
+static UINT16 g_lastChannels = 0;
+static UINT16 g_lastBitsPerSample = 0;
+static UINT32 g_lastLatencyMs = 0;
+
 typedef struct
 {
 	rdpsndDevicePlugin device;
@@ -44,6 +57,38 @@ typedef struct
 	UINT16 blockAlign;
 	UINT32 latencyMs;
 } rdpsndOhosPlugin;
+
+FREERDP_API BOOL freerdp_rdpsnd_ohos_get_stats(
+    UINT64* registeredCount, UINT64* openCount, UINT64* closeCount, UINT64* playCount,
+    UINT64* playBytes, UINT64* callbackCount, UINT64* renderedBytes, UINT64* underrunBytes,
+    UINT32* lastRate, UINT16* lastChannels, UINT16* lastBitsPerSample, UINT32* lastLatencyMs)
+{
+	if (registeredCount)
+		*registeredCount = g_registeredCount;
+	if (openCount)
+		*openCount = g_openCount;
+	if (closeCount)
+		*closeCount = g_closeCount;
+	if (playCount)
+		*playCount = g_playCount;
+	if (playBytes)
+		*playBytes = g_playBytes;
+	if (callbackCount)
+		*callbackCount = g_callbackCount;
+	if (renderedBytes)
+		*renderedBytes = g_renderedBytes;
+	if (underrunBytes)
+		*underrunBytes = g_underrunBytes;
+	if (lastRate)
+		*lastRate = g_lastRate;
+	if (lastChannels)
+		*lastChannels = g_lastChannels;
+	if (lastBitsPerSample)
+		*lastBitsPerSample = g_lastBitsPerSample;
+	if (lastLatencyMs)
+		*lastLatencyMs = g_lastLatencyMs;
+	return TRUE;
+}
 
 static size_t rdpsnd_ohos_frame_bytes(const rdpsndOhosPlugin* ohos)
 {
@@ -181,8 +226,13 @@ static OH_AudioData_Callback_Result rdpsnd_ohos_on_write_data(
 	copied = rdpsnd_ohos_pop_locked(ohos, dst, (size_t)audioDataSize);
 	LeaveCriticalSection(&ohos->lock);
 
+	g_callbackCount++;
+	g_renderedBytes += copied;
 	if (copied < (size_t)audioDataSize)
+	{
+		g_underrunBytes += (UINT64)((size_t)audioDataSize - copied);
 		memset(dst + copied, rdpsnd_ohos_silence_byte(ohos), (size_t)audioDataSize - copied);
+	}
 
 	return AUDIO_DATA_CALLBACK_RESULT_VALID;
 }
@@ -358,6 +408,11 @@ static BOOL rdpsnd_ohos_open(rdpsndDevicePlugin* device, const AUDIO_FORMAT* for
 	               " bits=%" PRIu16 " queue=%zu latency=%" PRIu32 "ms",
 	          ohos->rate, ohos->channels, ohos->bitsPerSample, ohos->queueCapacity,
 	          ohos->latencyMs);
+	g_openCount++;
+	g_lastRate = ohos->rate;
+	g_lastChannels = ohos->channels;
+	g_lastBitsPerSample = ohos->bitsPerSample;
+	g_lastLatencyMs = ohos->latencyMs;
 	return TRUE;
 
 fail:
@@ -381,6 +436,8 @@ static UINT rdpsnd_ohos_play(rdpsndDevicePlugin* device, const BYTE* data, size_
 	latency = rdpsnd_ohos_queued_latency_locked(ohos);
 	LeaveCriticalSection(&ohos->lock);
 
+	g_playCount++;
+	g_playBytes += size;
 	return latency;
 }
 
@@ -396,6 +453,7 @@ static void rdpsnd_ohos_close(rdpsndDevicePlugin* device)
 		return;
 
 	rdpsnd_ohos_release_renderer(ohos);
+	g_closeCount++;
 
 	EnterCriticalSection(&ohos->lock);
 	rdpsnd_ohos_clear_queue_locked(ohos);
@@ -444,6 +502,7 @@ FREERDP_ENTRY_POINT(UINT VCAPITYPE ohos_freerdp_rdpsnd_client_subsystem_entry(
 	ohos->device.Free = rdpsnd_ohos_free;
 
 	pEntryPoints->pRegisterRdpsndDevice(pEntryPoints->rdpsnd, &ohos->device);
+	g_registeredCount++;
 	WLog_INFO(TAG, "OHAudio rdpsnd device registered");
 	return CHANNEL_RC_OK;
 }
