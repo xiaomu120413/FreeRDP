@@ -767,6 +767,76 @@ fail:
 #endif
 }
 
+#if defined(WITH_GFX_H264) && defined(WITH_OHOS_AVCODEC)
+static BOOL gdi_ensure_ohos_surface_h264_context(H264_CONTEXT** ph264, UINT32 width,
+                                                 UINT32 height,
+                                                 H264_OHOS_SURFACE_TARGET target)
+{
+	BOOL changed = FALSE;
+
+	if (!ph264 || (width == 0) || (height == 0))
+		return FALSE;
+
+	if (!*ph264)
+	{
+		*ph264 = h264_context_new(FALSE);
+		if (!*ph264)
+			return FALSE;
+		changed = TRUE;
+	}
+
+	changed |= h264_context_set_ohos_surface_mode_allowed(*ph264, TRUE);
+	changed |= h264_context_set_ohos_surface_target(*ph264, target);
+	changed |= ((*ph264)->width != width) || ((*ph264)->height != height);
+
+	if (changed && !h264_context_reset(*ph264, width, height))
+	{
+		h264_context_free(*ph264);
+		*ph264 = NULL;
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+static INT32 gdi_SurfaceCommand_AVC444_OhosSurfaces(gdiGfxSurface* surface,
+                                                    const RDPGFX_AVC444_BITMAP_STREAM* bs,
+                                                    const RDPGFX_AVC420_BITMAP_STREAM* avc1,
+                                                    const RDPGFX_AVC420_BITMAP_STREAM* avc2,
+                                                    const RDPGFX_H264_METABLOCK* meta1,
+                                                    const RDPGFX_H264_METABLOCK* meta2)
+{
+	INT32 rc = -1;
+	static BOOL routeLogged = FALSE;
+
+	if (!surface || !bs || !avc1 || !avc2 || !meta1 || !meta2)
+		return -1001;
+
+	if (!h264_context_ohos_avc444_surface_route_enabled(surface->width, surface->height))
+		return -1002;
+
+	if (!gdi_ensure_ohos_surface_h264_context(&surface->avc444LumaH264, surface->width,
+	                                          surface->height, H264_OHOS_SURFACE_AVC444_LUMA))
+		return -1003;
+	if (!gdi_ensure_ohos_surface_h264_context(&surface->avc444ChromaH264, surface->width,
+	                                          surface->height, H264_OHOS_SURFACE_AVC444_CHROMA))
+		return -1004;
+
+	rc = avc444_decompress_to_ohos_surfaces(
+	    surface->avc444LumaH264, surface->avc444ChromaH264, bs->LC, meta1->regionRects,
+	    meta1->numRegionRects, avc1->data, avc1->length, meta2->regionRects,
+	    meta2->numRegionRects, avc2->data, avc2->length, surface->width, surface->height);
+	if (rc == 0 && !routeLogged)
+	{
+		WLog_INFO(TAG, "OHOS AVC444 surface route decoded first frame surfaceId=%" PRIu16
+		               " size=%" PRIu32 "x%" PRIu32,
+		          surface->surfaceId, surface->width, surface->height);
+		routeLogged = TRUE;
+	}
+	return rc;
+}
+#endif
+
 /**
  * Function description
  *
@@ -833,6 +903,16 @@ static UINT gdi_SurfaceCommand_AVC444(rdpGdi* gdi, RdpgfxClientContext* context,
 	avc2 = &bs->bitstream[1];
 	meta1 = &avc1->meta;
 	meta2 = &avc2->meta;
+
+#if defined(WITH_OHOS_AVCODEC)
+	rc = gdi_SurfaceCommand_AVC444_OhosSurfaces(surface, bs, avc1, avc2, meta1, meta2);
+	if (rc == 0)
+		goto surfaceDecoded;
+	else if (rc != -1002)
+		WLog_WARN(TAG, "OHOS AVC444 surface route unavailable rc=%" PRId32 "; using CPU/GDI fallback",
+		          rc);
+#endif
+
 	rc = avc444_decompress(surface->h264, bs->LC, meta1->regionRects, meta1->numRegionRects,
 	                       avc1->data, avc1->length, meta2->regionRects, meta2->numRegionRects,
 	                       avc2->data, avc2->length, surface->data, surface->format,
@@ -844,6 +924,9 @@ static UINT gdi_SurfaceCommand_AVC444(rdpGdi* gdi, RdpgfxClientContext* context,
 		return CHANNEL_RC_OK;
 	}
 
+#if defined(WITH_OHOS_AVCODEC)
+surfaceDecoded:
+#endif
 	for (UINT32 i = 0; i < meta1->numRegionRects; i++)
 	{
 		if (!region16_union_rect(&(surface->invalidRegion), &(surface->invalidRegion),
@@ -1363,6 +1446,8 @@ static UINT gdi_DeleteSurface(RdpgfxClientContext* context,
 
 #ifdef WITH_GFX_H264
 		h264_context_free(surface->h264);
+		h264_context_free(surface->avc444LumaH264);
+		h264_context_free(surface->avc444ChromaH264);
 #endif
 #if defined(WITH_GFX_AV1)
 		freerdp_av1_context_free(surface->av1);

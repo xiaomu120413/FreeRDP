@@ -41,6 +41,13 @@ extern "C"
 	                                        BYTE** WINPR_RESTRICT ppDstData,
 	                                        UINT32* WINPR_RESTRICT pDstSize);
 
+	typedef enum
+	{
+		H264_OHOS_SURFACE_DEFAULT = 0,
+		H264_OHOS_SURFACE_AVC444_LUMA = 1,
+		H264_OHOS_SURFACE_AVC444_CHROMA = 2
+	} H264_OHOS_SURFACE_TARGET;
+
 	struct S_H264_CONTEXT_SUBSYSTEM
 	{
 		const char* name;
@@ -65,6 +72,7 @@ extern "C"
 		UINT32 hwAccel;
 		UINT32 NumberOfThreads;
 		BOOL ohosSurfaceModeAllowed;
+		H264_OHOS_SURFACE_TARGET ohosSurfaceTarget;
 		BOOL surfaceRendered;
 
 		UINT32 iStride[3];
@@ -95,6 +103,20 @@ extern "C"
 
 	FREERDP_LOCAL BOOL h264_context_set_ohos_surface_mode_allowed(H264_CONTEXT* h264,
 	                                                              BOOL allowed);
+
+	FREERDP_LOCAL BOOL h264_context_set_ohos_surface_target(
+	    H264_CONTEXT* h264, H264_OHOS_SURFACE_TARGET target);
+
+	FREERDP_LOCAL INT32 avc444_decompress_to_ohos_surfaces(
+	    H264_CONTEXT* luma, H264_CONTEXT* chroma, BYTE op, const RECTANGLE_16* regionRects,
+	    UINT32 numRegionRects, const BYTE* pSrcData, UINT32 SrcSize,
+	    const RECTANGLE_16* auxRegionRects, UINT32 numAuxRegionRect, const BYTE* pAuxSrcData,
+	    UINT32 AuxSrcSize, UINT32 nDstWidth, UINT32 nDstHeight);
+
+#ifdef WITH_OHOS_AVCODEC
+	FREERDP_LOCAL BOOL h264_context_ohos_avc444_surface_route_enabled(UINT32 width,
+	                                                                  UINT32 height);
+#endif
 
 #ifdef WITH_MEDIACODEC
 	extern const H264_CONTEXT_SUBSYSTEM g_Subsystem_mediacodec;

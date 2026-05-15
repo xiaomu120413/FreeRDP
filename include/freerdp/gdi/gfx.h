@@ -33,6 +33,8 @@ extern "C"
 		UINT16 surfaceId;
 		rdpCodecs* codecs;
 		H264_CONTEXT* h264;
+		H264_CONTEXT* avc444LumaH264;
+		H264_CONTEXT* avc444ChromaH264;
 		UINT32 width;
 		UINT32 height;
 		UINT32 mappedWidth;
