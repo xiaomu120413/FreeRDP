@@ -8,6 +8,7 @@
 #include <inttypes.h>
 #include <limits.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -31,10 +32,21 @@ static UINT64 g_playBytes = 0;
 static UINT64 g_callbackCount = 0;
 static UINT64 g_renderedBytes = 0;
 static UINT64 g_underrunBytes = 0;
+static UINT64 g_serverFormatAnnounceCount = 0;
+static UINT64 g_lastServerFormatCount = 0;
+static UINT64 g_lastDirectSupportedServerFormatCount = 0;
+static UINT64 g_formatCheckCount = 0;
+static UINT64 g_formatSupportedCount = 0;
+static UINT64 g_formatRejectedCount = 0;
 static UINT32 g_lastRate = 0;
 static UINT16 g_lastChannels = 0;
 static UINT16 g_lastBitsPerSample = 0;
 static UINT32 g_lastLatencyMs = 0;
+static UINT16 g_lastRejectedFormatTag = 0;
+static UINT32 g_lastRejectedRate = 0;
+static UINT16 g_lastRejectedChannels = 0;
+static UINT16 g_lastRejectedBitsPerSample = 0;
+static UINT16 g_lastRejectedCbSize = 0;
 
 typedef struct
 {
@@ -88,6 +100,29 @@ FREERDP_API BOOL freerdp_rdpsnd_ohos_get_stats(
 	if (lastLatencyMs)
 		*lastLatencyMs = g_lastLatencyMs;
 	return TRUE;
+}
+
+FREERDP_API const char* freerdp_rdpsnd_ohos_get_diagnostics(void)
+{
+	static char buffer[768];
+	(void)snprintf(buffer, sizeof(buffer),
+	               "OHAudio stats: registered=%" PRIu64 " open=%" PRIu64 " close=%" PRIu64
+	               " playCalls=%" PRIu64 " playBytes=%" PRIu64 " callbacks=%" PRIu64
+	               " renderedBytes=%" PRIu64 " underrunBytes=%" PRIu64
+	               " serverFormatAnnounces=%" PRIu64 " serverFormats=%" PRIu64
+	               " directSupportedServerFormats=%" PRIu64 " formatChecks=%" PRIu64
+	               " formatSupported=%" PRIu64 " formatRejected=%" PRIu64
+	               " lastFormat=%" PRIu32 "Hz/%" PRIu16 "ch/%" PRIu16 "bit latency=%" PRIu32
+	               "ms lastRejected=tag=%" PRIu16 " rate=%" PRIu32 " channels=%" PRIu16
+	               " bits=%" PRIu16 " cbSize=%" PRIu16,
+	               g_registeredCount, g_openCount, g_closeCount, g_playCount, g_playBytes,
+	               g_callbackCount, g_renderedBytes, g_underrunBytes, g_serverFormatAnnounceCount,
+	               g_lastServerFormatCount, g_lastDirectSupportedServerFormatCount,
+	               g_formatCheckCount, g_formatSupportedCount, g_formatRejectedCount, g_lastRate,
+	               g_lastChannels, g_lastBitsPerSample, g_lastLatencyMs, g_lastRejectedFormatTag,
+	               g_lastRejectedRate, g_lastRejectedChannels, g_lastRejectedBitsPerSample,
+	               g_lastRejectedCbSize);
+	return buffer;
 }
 
 static size_t rdpsnd_ohos_frame_bytes(const rdpsndOhosPlugin* ohos)
@@ -280,11 +315,20 @@ static BOOL rdpsnd_ohos_allocate_queue(rdpsndOhosPlugin* ohos, UINT32 latency)
 	return TRUE;
 }
 
-static BOOL rdpsnd_ohos_format_supported(WINPR_ATTR_UNUSED rdpsndDevicePlugin* device,
-                                         const AUDIO_FORMAT* format)
+static void rdpsnd_ohos_record_rejected_format(const AUDIO_FORMAT* format)
 {
-	WINPR_ASSERT(format);
+	if (!format)
+		return;
 
+	g_lastRejectedFormatTag = format->wFormatTag;
+	g_lastRejectedRate = format->nSamplesPerSec;
+	g_lastRejectedChannels = format->nChannels;
+	g_lastRejectedBitsPerSample = format->wBitsPerSample;
+	g_lastRejectedCbSize = format->cbSize;
+}
+
+static BOOL rdpsnd_ohos_is_format_supported(const AUDIO_FORMAT* format)
+{
 	if (!format || (format->wFormatTag != WAVE_FORMAT_PCM) || (format->cbSize != 0))
 		return FALSE;
 
@@ -293,8 +337,43 @@ static BOOL rdpsnd_ohos_format_supported(WINPR_ATTR_UNUSED rdpsndDevicePlugin* d
 
 	if ((format->nChannels != 1U) && (format->nChannels != 2U))
 		return FALSE;
-
 	return (format->wBitsPerSample == 8U) || (format->wBitsPerSample == 16U);
+}
+
+static BOOL rdpsnd_ohos_format_supported(WINPR_ATTR_UNUSED rdpsndDevicePlugin* device,
+                                         const AUDIO_FORMAT* format)
+{
+	const BOOL supported = rdpsnd_ohos_is_format_supported(format);
+
+	g_formatCheckCount++;
+	if (supported)
+		g_formatSupportedCount++;
+	else
+	{
+		g_formatRejectedCount++;
+		rdpsnd_ohos_record_rejected_format(format);
+	}
+
+	return supported;
+}
+
+static UINT rdpsnd_ohos_server_format_announce(WINPR_ATTR_UNUSED rdpsndDevicePlugin* device,
+                                               const AUDIO_FORMAT* formats, size_t count)
+{
+	size_t supported = 0;
+
+	g_serverFormatAnnounceCount++;
+	g_lastServerFormatCount = count;
+	for (size_t index = 0; formats && (index < count); index++)
+	{
+		if (rdpsnd_ohos_is_format_supported(&formats[index]))
+			supported++;
+	}
+	g_lastDirectSupportedServerFormatCount = supported;
+
+	WLog_INFO(TAG, "OHAudio server formats announced: count=%zu direct-supported=%zu", count,
+	          supported);
+	return CHANNEL_RC_OK;
 }
 
 static BOOL rdpsnd_ohos_set_volume(rdpsndDevicePlugin* device, UINT32 value)
@@ -500,6 +579,7 @@ FREERDP_ENTRY_POINT(UINT VCAPITYPE ohos_freerdp_rdpsnd_client_subsystem_entry(
 	ohos->device.Play = rdpsnd_ohos_play;
 	ohos->device.Close = rdpsnd_ohos_close;
 	ohos->device.Free = rdpsnd_ohos_free;
+	ohos->device.ServerFormatAnnounce = rdpsnd_ohos_server_format_announce;
 
 	pEntryPoints->pRegisterRdpsndDevice(pEntryPoints->rdpsnd, &ohos->device);
 	g_registeredCount++;
