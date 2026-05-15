@@ -1077,6 +1077,9 @@ static UINT rdpsnd_process_connect(rdpsndPlugin* rdpsnd)
 #if defined(WITH_OPENSLES)
 		{ "opensles", "" },
 #endif
+#if defined(WITH_OHAUDIO)
+		{ "ohos", "" },
+#endif
 #if defined(WITH_PULSE)
 		{ "pulse", "" },
 #endif

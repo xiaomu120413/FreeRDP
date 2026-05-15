@@ -6198,6 +6198,8 @@ BOOL freerdp_client_load_addins(rdpChannels* channels, rdpSettings* settings)
 		    freerdp_settings_get_bool(settings, dynChannels[i].settingId))
 		{
 			const char* const p[] = { dynChannels[i].channelName };
+			if (freerdp_dynamic_channel_collection_find(settings, dynChannels[i].channelName))
+				continue;
 
 			if (!freerdp_client_add_dynamic_channel(settings, ARRAYSIZE(p), p))
 				return FALSE;
@@ -6413,6 +6415,9 @@ BOOL freerdp_client_load_addins(rdpChannels* channels, rdpSettings* settings)
 		if ((staticChannels[i].settingId == 0) ||
 		    freerdp_settings_get_bool(settings, staticChannels[i].settingId))
 		{
+			if (freerdp_static_channel_collection_find(settings, staticChannels[i].channelName))
+				continue;
+
 			if (staticChannels[i].args)
 			{
 				if (!freerdp_client_load_static_channel_addin(
