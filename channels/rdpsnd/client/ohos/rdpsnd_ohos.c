@@ -7,11 +7,13 @@
 
 #include <inttypes.h>
 #include <limits.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include <hilog/log.h>
 #include <ohaudio/native_audiorenderer.h>
 #include <ohaudio/native_audiostreambuilder.h>
 
@@ -32,21 +34,46 @@ static UINT64 g_playBytes = 0;
 static UINT64 g_callbackCount = 0;
 static UINT64 g_renderedBytes = 0;
 static UINT64 g_underrunBytes = 0;
+static UINT64 g_errorCallbackCount = 0;
+static UINT64 g_interruptCallbackCount = 0;
+static UINT64 g_deviceChangeCallbackCount = 0;
 static UINT64 g_serverFormatAnnounceCount = 0;
 static UINT64 g_lastServerFormatCount = 0;
 static UINT64 g_lastDirectSupportedServerFormatCount = 0;
 static UINT64 g_formatCheckCount = 0;
 static UINT64 g_formatSupportedCount = 0;
 static UINT64 g_formatRejectedCount = 0;
+static UINT64 g_defaultFormatCount = 0;
+static UINT64 g_queuePeakBytes = 0;
 static UINT32 g_lastRate = 0;
 static UINT16 g_lastChannels = 0;
 static UINT16 g_lastBitsPerSample = 0;
 static UINT32 g_lastLatencyMs = 0;
+static UINT32 g_lastQueueBytes = 0;
+static UINT32 g_lastCallbackSize = 0;
+static UINT32 g_lastCallbackCopied = 0;
+static UINT32 g_lastRendererState = 0;
+static UINT32 g_lastUnderflowCount = 0;
+static UINT32 g_lastOhosResult = 0;
+static UINT32 g_lastInterruptType = 0;
+static UINT32 g_lastInterruptHint = 0;
+static UINT32 g_lastDeviceChangeReason = 0;
 static UINT16 g_lastRejectedFormatTag = 0;
 static UINT32 g_lastRejectedRate = 0;
 static UINT16 g_lastRejectedChannels = 0;
 static UINT16 g_lastRejectedBitsPerSample = 0;
 static UINT16 g_lastRejectedCbSize = 0;
+
+static void rdpsnd_ohos_log(LogLevel level, const char* format, ...)
+{
+	char message[768] = { 0 };
+	va_list ap;
+
+	va_start(ap, format);
+	(void)vsnprintf(message, sizeof(message), format, ap);
+	va_end(ap);
+	OH_LOG_Print(LOG_APP, level, 0xF3D2, "FreeRDPAudio", "%{public}s", message);
+}
 
 typedef struct
 {
@@ -104,24 +131,33 @@ FREERDP_API BOOL freerdp_rdpsnd_ohos_get_stats(
 
 FREERDP_API const char* freerdp_rdpsnd_ohos_get_diagnostics(void)
 {
-	static char buffer[768];
+	static char buffer[1200];
 	(void)snprintf(buffer, sizeof(buffer),
 	               "OHAudio stats: registered=%" PRIu64 " open=%" PRIu64 " close=%" PRIu64
 	               " playCalls=%" PRIu64 " playBytes=%" PRIu64 " callbacks=%" PRIu64
 	               " renderedBytes=%" PRIu64 " underrunBytes=%" PRIu64
+	               " errors=%" PRIu64 " interrupts=%" PRIu64 " deviceChanges=%" PRIu64
 	               " serverFormatAnnounces=%" PRIu64 " serverFormats=%" PRIu64
 	               " directSupportedServerFormats=%" PRIu64 " formatChecks=%" PRIu64
 	               " formatSupported=%" PRIu64 " formatRejected=%" PRIu64
+	               " defaultFormats=%" PRIu64 " queue=%" PRIu32 " peakQueue=%" PRIu64
+	               " lastCallback=%" PRIu32 "/%" PRIu32 " state=%" PRIu32
+	               " underflows=%" PRIu32 " lastOhosResult=%" PRIu32
+	               " lastInterrupt=%" PRIu32 "/%" PRIu32 " lastDeviceReason=%" PRIu32
 	               " lastFormat=%" PRIu32 "Hz/%" PRIu16 "ch/%" PRIu16 "bit latency=%" PRIu32
 	               "ms lastRejected=tag=%" PRIu16 " rate=%" PRIu32 " channels=%" PRIu16
 	               " bits=%" PRIu16 " cbSize=%" PRIu16,
 	               g_registeredCount, g_openCount, g_closeCount, g_playCount, g_playBytes,
-	               g_callbackCount, g_renderedBytes, g_underrunBytes, g_serverFormatAnnounceCount,
-	               g_lastServerFormatCount, g_lastDirectSupportedServerFormatCount,
-	               g_formatCheckCount, g_formatSupportedCount, g_formatRejectedCount, g_lastRate,
-	               g_lastChannels, g_lastBitsPerSample, g_lastLatencyMs, g_lastRejectedFormatTag,
-	               g_lastRejectedRate, g_lastRejectedChannels, g_lastRejectedBitsPerSample,
-	               g_lastRejectedCbSize);
+	               g_callbackCount, g_renderedBytes, g_underrunBytes, g_errorCallbackCount,
+	               g_interruptCallbackCount, g_deviceChangeCallbackCount,
+	               g_serverFormatAnnounceCount, g_lastServerFormatCount,
+	               g_lastDirectSupportedServerFormatCount, g_formatCheckCount, g_formatSupportedCount,
+	               g_formatRejectedCount, g_defaultFormatCount, g_lastQueueBytes, g_queuePeakBytes,
+	               g_lastCallbackCopied, g_lastCallbackSize, g_lastRendererState,
+	               g_lastUnderflowCount, g_lastOhosResult, g_lastInterruptType, g_lastInterruptHint,
+	               g_lastDeviceChangeReason, g_lastRate, g_lastChannels, g_lastBitsPerSample,
+	               g_lastLatencyMs, g_lastRejectedFormatTag, g_lastRejectedRate,
+	               g_lastRejectedChannels, g_lastRejectedBitsPerSample, g_lastRejectedCbSize);
 	return buffer;
 }
 
@@ -141,6 +177,20 @@ static size_t rdpsnd_ohos_bytes_per_second(const rdpsndOhosPlugin* ohos)
 static BYTE rdpsnd_ohos_silence_byte(const rdpsndOhosPlugin* ohos)
 {
 	return (ohos && ohos->bitsPerSample == 8) ? 0x80 : 0x00;
+}
+
+static void rdpsnd_ohos_update_renderer_stats(rdpsndOhosPlugin* ohos)
+{
+	OH_AudioStream_State state = AUDIOSTREAM_STATE_INVALID;
+	UINT32 underflowCount = 0;
+
+	if (!ohos || !ohos->renderer)
+		return;
+
+	if (OH_AudioRenderer_GetCurrentState(ohos->renderer, &state) == AUDIOSTREAM_SUCCESS)
+		g_lastRendererState = (UINT32)state;
+	if (OH_AudioRenderer_GetUnderflowCount(ohos->renderer, &underflowCount) == AUDIOSTREAM_SUCCESS)
+		g_lastUnderflowCount = underflowCount;
 }
 
 static OH_AudioStream_SampleFormat rdpsnd_ohos_sample_format(UINT16 bitsPerSample)
@@ -241,27 +291,31 @@ static void rdpsnd_ohos_push_locked(rdpsndOhosPlugin* ohos, const BYTE* data, si
 		memcpy(ohos->queue + ohos->queueWrite, data, todo);
 		ohos->queueWrite = (ohos->queueWrite + todo) % ohos->queueCapacity;
 		ohos->queueSize += todo;
+		if (ohos->queueSize > g_queuePeakBytes)
+			g_queuePeakBytes = (UINT64)ohos->queueSize;
+		g_lastQueueBytes = (UINT32)((ohos->queueSize > UINT32_MAX) ? UINT32_MAX : ohos->queueSize);
 		data += todo;
 		size -= todo;
 	}
 }
 
-static OH_AudioData_Callback_Result rdpsnd_ohos_on_write_data(
-    WINPR_ATTR_UNUSED OH_AudioRenderer* renderer, void* userData, void* audioData,
-    int32_t audioDataSize)
+static size_t rdpsnd_ohos_fill_audio_buffer(rdpsndOhosPlugin* ohos, void* audioData,
+                                            int32_t audioDataSize)
 {
-	rdpsndOhosPlugin* ohos = (rdpsndOhosPlugin*)userData;
 	BYTE* dst = (BYTE*)audioData;
 	size_t copied = 0;
 
 	if (!ohos || !dst || (audioDataSize <= 0))
-		return AUDIO_DATA_CALLBACK_RESULT_INVALID;
+		return 0;
 
 	EnterCriticalSection(&ohos->lock);
 	copied = rdpsnd_ohos_pop_locked(ohos, dst, (size_t)audioDataSize);
+	g_lastQueueBytes = (UINT32)((ohos->queueSize > UINT32_MAX) ? UINT32_MAX : ohos->queueSize);
 	LeaveCriticalSection(&ohos->lock);
 
 	g_callbackCount++;
+	g_lastCallbackSize = (UINT32)audioDataSize;
+	g_lastCallbackCopied = (UINT32)((copied > UINT32_MAX) ? UINT32_MAX : copied);
 	g_renderedBytes += copied;
 	if (copied < (size_t)audioDataSize)
 	{
@@ -269,7 +323,73 @@ static OH_AudioData_Callback_Result rdpsnd_ohos_on_write_data(
 		memset(dst + copied, rdpsnd_ohos_silence_byte(ohos), (size_t)audioDataSize - copied);
 	}
 
-	return AUDIO_DATA_CALLBACK_RESULT_VALID;
+	if ((copied > 0) && ((g_callbackCount <= 5U) || ((g_callbackCount % 200U) == 0U)))
+	{
+		rdpsnd_ohos_update_renderer_stats(ohos);
+		rdpsnd_ohos_log(LOG_INFO,
+		                "callback copied=%zu requested=%d queue=%" PRIu32 " callbacks=%" PRIu64
+		                " underflows=%" PRIu32 " state=%" PRIu32,
+		                copied, audioDataSize, g_lastQueueBytes, g_callbackCount,
+		                g_lastUnderflowCount, g_lastRendererState);
+	}
+
+	return copied;
+}
+
+static int32_t rdpsnd_ohos_on_write_data_legacy(
+    WINPR_ATTR_UNUSED OH_AudioRenderer* renderer, void* userData, void* audioData,
+    int32_t audioDataSize)
+{
+	rdpsndOhosPlugin* ohos = (rdpsndOhosPlugin*)userData;
+
+	if (!ohos || !audioData || (audioDataSize <= 0))
+		return 0;
+
+	(void)rdpsnd_ohos_fill_audio_buffer(ohos, audioData, audioDataSize);
+	return audioDataSize;
+}
+
+static int32_t rdpsnd_ohos_on_stream_event(WINPR_ATTR_UNUSED OH_AudioRenderer* renderer,
+                                           WINPR_ATTR_UNUSED void* userData,
+                                           OH_AudioStream_Event event)
+{
+	g_deviceChangeCallbackCount++;
+	g_lastDeviceChangeReason = (UINT32)event;
+	rdpsnd_ohos_log(LOG_INFO, "renderer stream event=%" PRIu32 " count=%" PRIu64,
+	                g_lastDeviceChangeReason, g_deviceChangeCallbackCount);
+	return 0;
+}
+
+static int32_t rdpsnd_ohos_on_interrupt(WINPR_ATTR_UNUSED OH_AudioRenderer* renderer,
+                                        void* userData, OH_AudioInterrupt_ForceType type,
+                                        OH_AudioInterrupt_Hint hint)
+{
+	rdpsndOhosPlugin* ohos = (rdpsndOhosPlugin*)userData;
+
+	g_interruptCallbackCount++;
+	g_lastInterruptType = (UINT32)type;
+	g_lastInterruptHint = (UINT32)hint;
+	rdpsnd_ohos_update_renderer_stats(ohos);
+	rdpsnd_ohos_log(LOG_WARN,
+	                "renderer interrupt type=%" PRIu32 " hint=%" PRIu32 " count=%" PRIu64
+	                " state=%" PRIu32,
+	                g_lastInterruptType, g_lastInterruptHint, g_interruptCallbackCount,
+	                g_lastRendererState);
+	return 0;
+}
+
+static int32_t rdpsnd_ohos_on_error(WINPR_ATTR_UNUSED OH_AudioRenderer* renderer, void* userData,
+                                    OH_AudioStream_Result error)
+{
+	rdpsndOhosPlugin* ohos = (rdpsndOhosPlugin*)userData;
+
+	g_errorCallbackCount++;
+	g_lastOhosResult = (UINT32)error;
+	rdpsnd_ohos_update_renderer_stats(ohos);
+	rdpsnd_ohos_log(LOG_ERROR,
+	                "renderer error result=%" PRIu32 " count=%" PRIu64 " state=%" PRIu32,
+	                g_lastOhosResult, g_errorCallbackCount, g_lastRendererState);
+	return 0;
 }
 
 static void rdpsnd_ohos_release_renderer(rdpsndOhosPlugin* ohos)
@@ -277,9 +397,15 @@ static void rdpsnd_ohos_release_renderer(rdpsndOhosPlugin* ohos)
 	if (!ohos || !ohos->renderer)
 		return;
 
-	OH_AudioRenderer_Stop(ohos->renderer);
-	OH_AudioRenderer_Flush(ohos->renderer);
-	OH_AudioRenderer_Release(ohos->renderer);
+	rdpsnd_ohos_update_renderer_stats(ohos);
+	rdpsnd_ohos_log(LOG_INFO,
+	                "releasing renderer state=%" PRIu32 " underflows=%" PRIu32
+	                " callbacks=%" PRIu64 " rendered=%" PRIu64 " underrunBytes=%" PRIu64,
+	                g_lastRendererState, g_lastUnderflowCount, g_callbackCount, g_renderedBytes,
+	                g_underrunBytes);
+	(void)OH_AudioRenderer_Stop(ohos->renderer);
+	(void)OH_AudioRenderer_Flush(ohos->renderer);
+	(void)OH_AudioRenderer_Release(ohos->renderer);
 	ohos->renderer = NULL;
 }
 
@@ -357,6 +483,44 @@ static BOOL rdpsnd_ohos_format_supported(WINPR_ATTR_UNUSED rdpsndDevicePlugin* d
 	return supported;
 }
 
+static BOOL rdpsnd_ohos_default_format(WINPR_ATTR_UNUSED rdpsndDevicePlugin* device,
+                                       const AUDIO_FORMAT* sourceFormat,
+                                       AUDIO_FORMAT* defaultFormat)
+{
+	UINT32 rate = 44100U;
+	UINT16 channels = 2U;
+
+	if (!sourceFormat || !defaultFormat)
+		return FALSE;
+
+	if ((sourceFormat->nSamplesPerSec >= 8000U) && (sourceFormat->nSamplesPerSec <= 48000U))
+		rate = sourceFormat->nSamplesPerSec;
+	if ((sourceFormat->nChannels == 1U) || (sourceFormat->nChannels == 2U))
+		channels = sourceFormat->nChannels;
+
+	memset(defaultFormat, 0, sizeof(*defaultFormat));
+	defaultFormat->wFormatTag = WAVE_FORMAT_PCM;
+	defaultFormat->nChannels = channels;
+	defaultFormat->nSamplesPerSec = rate;
+	defaultFormat->wBitsPerSample = 16U;
+	defaultFormat->nBlockAlign =
+	    (UINT16)((defaultFormat->nChannels * defaultFormat->wBitsPerSample) / 8U);
+	defaultFormat->nAvgBytesPerSec =
+	    defaultFormat->nSamplesPerSec * defaultFormat->nBlockAlign;
+	defaultFormat->cbSize = 0;
+
+	g_defaultFormatCount++;
+	rdpsnd_ohos_log(LOG_INFO,
+	                "default PCM format sourceTag=%" PRIu16 " sourceRate=%" PRIu32
+	                " sourceChannels=%" PRIu16 " -> rate=%" PRIu32 " channels=%" PRIu16
+	                " bits=%" PRIu16 " blockAlign=%" PRIu16,
+	                sourceFormat->wFormatTag, sourceFormat->nSamplesPerSec,
+	                sourceFormat->nChannels, defaultFormat->nSamplesPerSec,
+	                defaultFormat->nChannels, defaultFormat->wBitsPerSample,
+	                defaultFormat->nBlockAlign);
+	return TRUE;
+}
+
 static UINT rdpsnd_ohos_server_format_announce(WINPR_ATTR_UNUSED rdpsndDevicePlugin* device,
                                                const AUDIO_FORMAT* formats, size_t count)
 {
@@ -373,6 +537,8 @@ static UINT rdpsnd_ohos_server_format_announce(WINPR_ATTR_UNUSED rdpsndDevicePlu
 
 	WLog_INFO(TAG, "OHAudio server formats announced: count=%zu direct-supported=%zu", count,
 	          supported);
+	rdpsnd_ohos_log(LOG_INFO, "server formats announced count=%zu directSupported=%zu", count,
+	                supported);
 	return CHANNEL_RC_OK;
 }
 
@@ -387,7 +553,16 @@ static BOOL rdpsnd_ohos_set_volume(rdpsndDevicePlugin* device, UINT32 value)
 	ohos->volume = value;
 
 	if (ohos->renderer)
-		return OH_AudioRenderer_SetVolume(ohos->renderer, volume) == AUDIOSTREAM_SUCCESS;
+	{
+		const OH_AudioStream_Result rc = OH_AudioRenderer_SetVolume(ohos->renderer, volume);
+		if (rc != AUDIOSTREAM_SUCCESS)
+		{
+			g_lastOhosResult = (UINT32)rc;
+			rdpsnd_ohos_log(LOG_WARN, "SetVolume failed result=%" PRIu32 " volume=%f", (UINT32)rc,
+			                volume);
+			return FALSE;
+		}
+	}
 
 	return TRUE;
 }
@@ -418,55 +593,130 @@ static BOOL rdpsnd_ohos_open(rdpsndDevicePlugin* device, const AUDIO_FORMAT* for
 	rdpsndOhosPlugin* ohos = (rdpsndOhosPlugin*)device;
 	OH_AudioStreamBuilder* builder = NULL;
 	OH_AudioStream_Result rc = AUDIOSTREAM_SUCCESS;
+	const char* stage = "start";
 	const int32_t frameSize = format ? (int32_t)((format->nSamplesPerSec * 20U) / 1000U) : 0;
+	OH_AudioChannelLayout channelLayout = CH_LAYOUT_STEREO;
+	OH_AudioRenderer_Callbacks callbacks = { 0 };
 
 	WINPR_ASSERT(ohos);
 	WINPR_ASSERT(format);
 
+	rdpsnd_ohos_log(LOG_INFO,
+	                "opening renderer tag=%" PRIu16 " rate=%" PRIu32 " channels=%" PRIu16
+	                " bits=%" PRIu16 " blockAlign=%" PRIu16 " avgBytes=%" PRIu32
+	                " cbSize=%" PRIu16 " requestedLatency=%" PRIu32,
+	                format->wFormatTag, format->nSamplesPerSec, format->nChannels,
+	                format->wBitsPerSample, format->nBlockAlign, format->nAvgBytesPerSec,
+	                format->cbSize, latency);
+
 	if (!rdpsnd_ohos_format_supported(device, format))
+	{
+		rdpsnd_ohos_log(LOG_ERROR,
+		                "renderer format unsupported tag=%" PRIu16 " rate=%" PRIu32
+		                " channels=%" PRIu16 " bits=%" PRIu16 " cbSize=%" PRIu16,
+		                format->wFormatTag, format->nSamplesPerSec, format->nChannels,
+		                format->wBitsPerSample, format->cbSize);
 		return FALSE;
+	}
 
 	rdpsnd_ohos_release_renderer(ohos);
 
 	ohos->rate = format->nSamplesPerSec;
 	ohos->channels = format->nChannels;
 	ohos->bitsPerSample = format->wBitsPerSample;
-	ohos->blockAlign = format->nBlockAlign;
+	ohos->blockAlign = (UINT16)((ohos->channels * ohos->bitsPerSample) / 8U);
 	if (ohos->blockAlign == 0)
-		ohos->blockAlign = (UINT16)((ohos->channels * ohos->bitsPerSample) / 8U);
+		ohos->blockAlign = format->nBlockAlign;
 
 	if (!rdpsnd_ohos_allocate_queue(ohos, latency))
+	{
+		rdpsnd_ohos_log(LOG_ERROR, "renderer queue allocation failed bytesPerSecond=%zu latency=%" PRIu32,
+		                rdpsnd_ohos_bytes_per_second(ohos), latency);
 		return FALSE;
+	}
 
+	stage = "OH_AudioStreamBuilder_Create";
 	rc = OH_AudioStreamBuilder_Create(&builder, AUDIOSTREAM_TYPE_RENDERER);
 	if (rc != AUDIOSTREAM_SUCCESS)
 		goto fail;
 
+	stage = "OH_AudioStreamBuilder_SetSamplingRate";
 	rc = OH_AudioStreamBuilder_SetSamplingRate(builder, (int32_t)ohos->rate);
 	if (rc != AUDIOSTREAM_SUCCESS)
 		goto fail;
 
+	stage = "OH_AudioStreamBuilder_SetChannelCount";
 	rc = OH_AudioStreamBuilder_SetChannelCount(builder, (int32_t)ohos->channels);
 	if (rc != AUDIOSTREAM_SUCCESS)
 		goto fail;
 
+	stage = "OH_AudioStreamBuilder_SetSampleFormat";
 	rc = OH_AudioStreamBuilder_SetSampleFormat(builder, rdpsnd_ohos_sample_format(ohos->bitsPerSample));
 	if (rc != AUDIOSTREAM_SUCCESS)
 		goto fail;
 
+	stage = "OH_AudioStreamBuilder_SetEncodingType";
 	rc = OH_AudioStreamBuilder_SetEncodingType(builder, AUDIOSTREAM_ENCODING_TYPE_RAW);
 	if (rc != AUDIOSTREAM_SUCCESS)
 		goto fail;
 
-	OH_AudioStreamBuilder_SetLatencyMode(builder, AUDIOSTREAM_LATENCY_MODE_FAST);
-	OH_AudioStreamBuilder_SetRendererInfo(builder, AUDIOSTREAM_USAGE_MOVIE);
-	if (frameSize > 0)
-		OH_AudioStreamBuilder_SetFrameSizeInCallback(builder, frameSize);
+	channelLayout = (ohos->channels == 1U) ? CH_LAYOUT_MONO : CH_LAYOUT_STEREO;
+	rc = OH_AudioStreamBuilder_SetChannelLayout(builder, channelLayout);
+	if (rc != AUDIOSTREAM_SUCCESS)
+	{
+		g_lastOhosResult = (UINT32)rc;
+		rdpsnd_ohos_log(LOG_WARN,
+		                "SetChannelLayout failed result=%" PRIu32 " channels=%" PRIu16
+		                " layout=%" PRIu64,
+		                (UINT32)rc, ohos->channels, (UINT64)channelLayout);
+	}
 
-	rc = OH_AudioStreamBuilder_SetRendererWriteDataCallback(builder, rdpsnd_ohos_on_write_data, ohos);
+	rc = OH_AudioStreamBuilder_SetLatencyMode(builder, AUDIOSTREAM_LATENCY_MODE_FAST);
+	if (rc != AUDIOSTREAM_SUCCESS)
+	{
+		g_lastOhosResult = (UINT32)rc;
+		rdpsnd_ohos_log(LOG_WARN, "FAST latency mode failed result=%" PRIu32 ", fallback NORMAL",
+		                (UINT32)rc);
+		(void)OH_AudioStreamBuilder_SetLatencyMode(builder, AUDIOSTREAM_LATENCY_MODE_NORMAL);
+	}
+
+	rc = OH_AudioStreamBuilder_SetRendererInfo(builder, AUDIOSTREAM_USAGE_MOVIE);
+	if (rc != AUDIOSTREAM_SUCCESS)
+	{
+		g_lastOhosResult = (UINT32)rc;
+		rdpsnd_ohos_log(LOG_WARN, "SetRendererInfo failed result=%" PRIu32, (UINT32)rc);
+	}
+
+	rc = OH_AudioStreamBuilder_SetRendererInterruptMode(builder,
+	                                                    AUDIOSTREAM_INTERRUPT_MODE_INDEPENDENT);
+	if (rc != AUDIOSTREAM_SUCCESS)
+	{
+		g_lastOhosResult = (UINT32)rc;
+		rdpsnd_ohos_log(LOG_WARN, "SetRendererInterruptMode failed result=%" PRIu32, (UINT32)rc);
+	}
+
+	if (frameSize > 0)
+	{
+		rc = OH_AudioStreamBuilder_SetFrameSizeInCallback(builder, frameSize);
+		if (rc != AUDIOSTREAM_SUCCESS)
+		{
+			g_lastOhosResult = (UINT32)rc;
+			rdpsnd_ohos_log(LOG_WARN, "SetFrameSizeInCallback failed result=%" PRIu32 " frame=%d",
+			                (UINT32)rc, frameSize);
+		}
+	}
+
+	callbacks.OH_AudioRenderer_OnWriteData = rdpsnd_ohos_on_write_data_legacy;
+	callbacks.OH_AudioRenderer_OnStreamEvent = rdpsnd_ohos_on_stream_event;
+	callbacks.OH_AudioRenderer_OnInterruptEvent = rdpsnd_ohos_on_interrupt;
+	callbacks.OH_AudioRenderer_OnError = rdpsnd_ohos_on_error;
+
+	stage = "OH_AudioStreamBuilder_SetRendererCallback";
+	rc = OH_AudioStreamBuilder_SetRendererCallback(builder, callbacks, ohos);
 	if (rc != AUDIOSTREAM_SUCCESS)
 		goto fail;
 
+	stage = "OH_AudioStreamBuilder_GenerateRenderer";
 	rc = OH_AudioStreamBuilder_GenerateRenderer(builder, &ohos->renderer);
 	if (rc != AUDIOSTREAM_SUCCESS)
 		goto fail;
@@ -476,9 +726,12 @@ static BOOL rdpsnd_ohos_open(rdpsndDevicePlugin* device, const AUDIO_FORMAT* for
 
 	rdpsnd_ohos_set_volume(device, ohos->volume);
 
+	stage = "OH_AudioRenderer_Start";
 	rc = OH_AudioRenderer_Start(ohos->renderer);
 	if (rc != AUDIOSTREAM_SUCCESS)
 	{
+		g_lastOhosResult = (UINT32)rc;
+		rdpsnd_ohos_log(LOG_ERROR, "renderer start failed result=%" PRIu32, (UINT32)rc);
 		rdpsnd_ohos_release_renderer(ohos);
 		return FALSE;
 	}
@@ -492,10 +745,19 @@ static BOOL rdpsnd_ohos_open(rdpsndDevicePlugin* device, const AUDIO_FORMAT* for
 	g_lastChannels = ohos->channels;
 	g_lastBitsPerSample = ohos->bitsPerSample;
 	g_lastLatencyMs = ohos->latencyMs;
+	rdpsnd_ohos_update_renderer_stats(ohos);
+	rdpsnd_ohos_log(LOG_INFO,
+	                "renderer started rate=%" PRIu32 " channels=%" PRIu16 " bits=%" PRIu16
+	                " blockAlign=%" PRIu16 " queue=%zu latency=%" PRIu32 "ms state=%" PRIu32,
+	                ohos->rate, ohos->channels, ohos->bitsPerSample, ohos->blockAlign,
+	                ohos->queueCapacity, ohos->latencyMs, g_lastRendererState);
 	return TRUE;
 
 fail:
-	WLog_ERR(TAG, "OHAudio renderer open failed: result=%d", rc);
+	g_lastOhosResult = (UINT32)rc;
+	WLog_ERR(TAG, "OHAudio renderer open failed at %s: result=%d", stage, rc);
+	rdpsnd_ohos_log(LOG_ERROR, "renderer open failed stage=%s result=%" PRIu32, stage,
+	                (UINT32)rc);
 	if (builder)
 		OH_AudioStreamBuilder_Destroy(builder);
 	rdpsnd_ohos_release_renderer(ohos);
@@ -517,6 +779,16 @@ static UINT rdpsnd_ohos_play(rdpsndDevicePlugin* device, const BYTE* data, size_
 
 	g_playCount++;
 	g_playBytes += size;
+	if ((g_playCount <= 5U) || ((g_playCount % 50U) == 0U))
+	{
+		rdpsnd_ohos_update_renderer_stats(ohos);
+		rdpsnd_ohos_log(LOG_INFO,
+		                "play size=%zu latency=%" PRIu32 " queue=%" PRIu32
+		                " playCalls=%" PRIu64 " playBytes=%" PRIu64
+		                " state=%" PRIu32 " underflows=%" PRIu32,
+		                size, latency, g_lastQueueBytes, g_playCount, g_playBytes,
+		                g_lastRendererState, g_lastUnderflowCount);
+	}
 	return latency;
 }
 
@@ -531,6 +803,8 @@ static void rdpsnd_ohos_close(rdpsndDevicePlugin* device)
 	if (!ohos)
 		return;
 
+	rdpsnd_ohos_log(LOG_INFO, "closing renderer queue=%" PRIu32 " playCalls=%" PRIu64,
+	                g_lastQueueBytes, g_playCount);
 	rdpsnd_ohos_release_renderer(ohos);
 	g_closeCount++;
 
@@ -573,6 +847,7 @@ FREERDP_ENTRY_POINT(UINT VCAPITYPE ohos_freerdp_rdpsnd_client_subsystem_entry(
 
 	ohos->device.Open = rdpsnd_ohos_open;
 	ohos->device.FormatSupported = rdpsnd_ohos_format_supported;
+	ohos->device.DefaultFormat = rdpsnd_ohos_default_format;
 	ohos->device.GetVolume = rdpsnd_ohos_get_volume;
 	ohos->device.SetVolume = rdpsnd_ohos_set_volume;
 	ohos->device.Start = rdpsnd_ohos_start;
@@ -584,5 +859,7 @@ FREERDP_ENTRY_POINT(UINT VCAPITYPE ohos_freerdp_rdpsnd_client_subsystem_entry(
 	pEntryPoints->pRegisterRdpsndDevice(pEntryPoints->rdpsnd, &ohos->device);
 	g_registeredCount++;
 	WLog_INFO(TAG, "OHAudio rdpsnd device registered");
+	rdpsnd_ohos_log(LOG_INFO, "rdpsnd OHAudio device registered count=%" PRIu64,
+	                g_registeredCount);
 	return CHANNEL_RC_OK;
 }

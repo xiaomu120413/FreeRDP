@@ -5,7 +5,7 @@ define_channel_client_subsystem("rdpsnd" "ohos" "")
 
 set(${MODULE_PREFIX}_SRCS rdpsnd_ohos.c)
 
-set(${MODULE_PREFIX}_LIBS winpr freerdp ohaudio)
+set(${MODULE_PREFIX}_LIBS winpr freerdp ohaudio hilog_ndk.z)
 
 include_directories(..)
 
