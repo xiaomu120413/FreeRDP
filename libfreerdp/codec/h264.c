@@ -159,6 +159,9 @@ INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize
 	if (status < 0)
 		return status;
 
+	if (h264->surfaceRendered)
+		return 1;
+
 	pYUVData[0] = h264->pYUVData[0];
 	pYUVData[1] = h264->pYUVData[1];
 	pYUVData[2] = h264->pYUVData[2];
@@ -755,6 +758,18 @@ BOOL h264_context_reset(H264_CONTEXT* h264, UINT32 width, UINT32 height)
 		return FALSE;
 
 	return yuv_context_reset(h264->yuv, width, height);
+}
+
+BOOL h264_context_set_ohos_surface_mode_allowed(H264_CONTEXT* h264, BOOL allowed)
+{
+	BOOL changed = FALSE;
+
+	if (!h264)
+		return FALSE;
+
+	changed = h264->ohosSurfaceModeAllowed != allowed;
+	h264->ohosSurfaceModeAllowed = allowed;
+	return changed;
 }
 
 H264_CONTEXT* h264_context_new(BOOL Compressor)

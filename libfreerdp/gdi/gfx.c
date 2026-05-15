@@ -33,6 +33,10 @@
 #include <freerdp/utils/gfx.h>
 #include <math.h>
 
+#ifdef WITH_GFX_H264
+#include "../codec/h264.h"
+#endif
+
 #define TAG FREERDP_TAG("gdi")
 
 static BOOL is_rect_valid(const RECTANGLE_16* rect, size_t width, size_t height)
@@ -709,12 +713,18 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 			return ERROR_NOT_ENOUGH_MEMORY;
 		}
 
+		h264_context_set_ohos_surface_mode_allowed(surface->h264, TRUE);
 		if (!h264_context_reset(surface->h264, surface->width, surface->height))
 			return ERROR_INTERNAL_ERROR;
 	}
 
 	if (!surface->h264)
 		return ERROR_NOT_SUPPORTED;
+	if (h264_context_set_ohos_surface_mode_allowed(surface->h264, TRUE))
+	{
+		if (!h264_context_reset(surface->h264, surface->width, surface->height))
+			return ERROR_INTERNAL_ERROR;
+	}
 
 	if (!is_within_surface(surface, cmd))
 		return ERROR_INVALID_DATA;
@@ -798,12 +808,18 @@ static UINT gdi_SurfaceCommand_AVC444(rdpGdi* gdi, RdpgfxClientContext* context,
 			return ERROR_NOT_ENOUGH_MEMORY;
 		}
 
+		h264_context_set_ohos_surface_mode_allowed(surface->h264, FALSE);
 		if (!h264_context_reset(surface->h264, surface->width, surface->height))
 			return ERROR_INTERNAL_ERROR;
 	}
 
 	if (!surface->h264)
 		return ERROR_NOT_SUPPORTED;
+	if (h264_context_set_ohos_surface_mode_allowed(surface->h264, FALSE))
+	{
+		if (!h264_context_reset(surface->h264, surface->width, surface->height))
+			return ERROR_INTERNAL_ERROR;
+	}
 
 	if (!is_within_surface(surface, cmd))
 		return ERROR_INVALID_DATA;
