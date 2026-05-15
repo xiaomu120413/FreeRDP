@@ -26,10 +26,39 @@
 #include <android/log.h>
 #endif
 
+#if defined(__OHOS__)
+#include <hilog/log.h>
+#endif
+
 #define WLOG_CONSOLE_DEFAULT 0
 #define WLOG_CONSOLE_STDOUT 1
 #define WLOG_CONSOLE_STDERR 2
 #define WLOG_CONSOLE_DEBUG 4
+
+#if defined(__OHOS__)
+#define WLOG_OHOS_LOG_DOMAIN 0xF3D0
+#define WLOG_OHOS_LOG_TAG "FreeRDP"
+
+static LogLevel WLog_OhosLogLevel(DWORD level)
+{
+	switch (level)
+	{
+		case WLOG_TRACE:
+		case WLOG_DEBUG:
+			return LOG_DEBUG;
+		case WLOG_INFO:
+			return LOG_INFO;
+		case WLOG_WARN:
+			return LOG_WARN;
+		case WLOG_ERROR:
+			return LOG_ERROR;
+		case WLOG_FATAL:
+			return LOG_FATAL;
+		default:
+			return LOG_FATAL;
+	}
+}
+#endif
 
 typedef struct
 {
@@ -104,6 +133,16 @@ static BOOL WLog_ConsoleAppender_WriteMessage(wLog* log, wLogAppender* appender,
 	if (level != ANDROID_LOG_SILENT)
 		__android_log_print(level, log->Name, "%s%s", prefix, cmessage->TextString);
 
+#elif defined(__OHOS__)
+	if (cmessage->Level != WLOG_OFF)
+	{
+		const LogLevel level = WLog_OhosLogLevel(cmessage->Level);
+		const char* name = (log && log->Name && log->Name[0]) ? log->Name : "root";
+		(void)OH_LOG_Print(LOG_APP, level, WLOG_OHOS_LOG_DOMAIN, WLOG_OHOS_LOG_TAG,
+		                   "[%{public}s] %{public}s%{public}s", name, prefix,
+		                   cmessage->TextString);
+	}
+
 #else
 	FILE* fp = nullptr;
 	switch (consoleAppender->outputStream)
@@ -141,7 +180,7 @@ static BOOL WLog_ConsoleAppender_WriteDataMessage(WINPR_ATTR_UNUSED wLog* log,
                                                   WINPR_ATTR_UNUSED wLogAppender* appender,
                                                   const wLogMessage* message)
 {
-#if defined(ANDROID)
+#if defined(ANDROID) || defined(__OHOS__)
 	return FALSE;
 #else
 	int DataId = 0;
@@ -164,7 +203,7 @@ static BOOL WLog_ConsoleAppender_WriteImageMessage(WINPR_ATTR_UNUSED wLog* log,
                                                    WINPR_ATTR_UNUSED wLogAppender* appender,
                                                    const wLogMessage* message)
 {
-#if defined(ANDROID)
+#if defined(ANDROID) || defined(__OHOS__)
 	return FALSE;
 #else
 	int ImageId = 0;
@@ -188,7 +227,7 @@ static BOOL WLog_ConsoleAppender_WritePacketMessage(WINPR_ATTR_UNUSED wLog* log,
                                                     wLogAppender* appender,
                                                     const wLogMessage* message)
 {
-#if defined(ANDROID)
+#if defined(ANDROID) || defined(__OHOS__)
 	return FALSE;
 #else
 	char* FullFileName = nullptr;

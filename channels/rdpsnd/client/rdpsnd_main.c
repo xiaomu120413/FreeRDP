@@ -119,6 +119,36 @@ struct rdpsnd_plugin
 
 static DWORD WINAPI play_thread(LPVOID arg);
 
+static UINT64 g_serverFormatPduCount = 0;
+static UINT64 g_clientFormatSendCount = 0;
+static UINT64 g_trainingPduCount = 0;
+static UINT64 g_waveInfoPduCount = 0;
+static UINT64 g_wavePayloadPduCount = 0;
+static UINT64 g_wave2PduCount = 0;
+static UINT64 g_closePduCount = 0;
+static UINT64 g_setVolumePduCount = 0;
+static UINT64 g_unknownPduCount = 0;
+static UINT16 g_lastClientFormatCount = 0;
+static UINT16 g_lastWaveFormatNo = 0;
+static UINT16 g_lastWaveBodySize = 0;
+static BYTE g_lastMsgType = 0;
+
+FREERDP_API const char* freerdp_rdpsnd_client_get_diagnostics(void)
+{
+	static char buffer[512];
+	(void)snprintf(buffer, sizeof(buffer),
+	               "rdpsnd pdu: serverFormats=%" PRIu64 " clientFormatsSent=%" PRIu64
+	               " lastClientFormats=%" PRIu16 " training=%" PRIu64
+	               " waveInfo=%" PRIu64 " wavePayload=%" PRIu64 " wave2=%" PRIu64
+	               " close=%" PRIu64 " setVolume=%" PRIu64 " unknown=%" PRIu64
+	               " lastWaveFormat=%" PRIu16 " lastWaveBody=%" PRIu16 " lastMsg=%" PRIu8,
+	               g_serverFormatPduCount, g_clientFormatSendCount, g_lastClientFormatCount,
+	               g_trainingPduCount, g_waveInfoPduCount, g_wavePayloadPduCount,
+	               g_wave2PduCount, g_closePduCount, g_setVolumePduCount, g_unknownPduCount,
+	               g_lastWaveFormatNo, g_lastWaveBodySize, g_lastMsgType);
+	return buffer;
+}
+
 static const char* rdpsnd_is_dyn_str(BOOL dynamic)
 {
 	if (dynamic)
@@ -212,6 +242,8 @@ static UINT rdpsnd_send_client_audio_formats(rdpsndPlugin* rdpsnd)
 
 	dwVolume = IFCALLRESULT(0, rdpsnd->device->GetVolume, rdpsnd->device);
 	wNumberOfFormats = rdpsnd->NumberOfClientFormats;
+	g_clientFormatSendCount++;
+	g_lastClientFormatCount = wNumberOfFormats;
 	length = 4 + 20;
 
 	for (UINT16 index = 0; index < wNumberOfFormats; index++)
@@ -277,6 +309,7 @@ static UINT rdpsnd_recv_server_audio_formats_pdu(rdpsndPlugin* rdpsnd, wStream* 
 	Stream_Seek_UINT32(s); /* dwPitch */
 	Stream_Seek_UINT16(s); /* wDGramPort */
 	Stream_Read_UINT16(s, wNumberOfFormats);
+	g_serverFormatPduCount++;
 	Stream_Read_UINT8(s, rdpsnd->cBlockNo);  /* cLastBlockConfirmed */
 	Stream_Read_UINT16(s, rdpsnd->wVersion); /* wVersion */
 	Stream_Seek_UINT8(s);                    /* bPad */
@@ -372,6 +405,7 @@ static UINT rdpsnd_recv_training_pdu(rdpsndPlugin* rdpsnd, wStream* s)
 
 	Stream_Read_UINT16(s, wTimeStamp);
 	Stream_Read_UINT16(s, wPackSize);
+	g_trainingPduCount++;
 	WLog_Print(rdpsnd->log, WLOG_DEBUG,
 	           "%s Training Request: wTimeStamp: %" PRIu16 " wPackSize: %" PRIu16 "",
 	           rdpsnd_is_dyn_str(rdpsnd->dynamic), wTimeStamp, wPackSize);
@@ -462,6 +496,9 @@ static UINT rdpsnd_recv_wave_info_pdu(rdpsndPlugin* rdpsnd, wStream* s, UINT16 B
 	rdpsnd->wArrivalTime = GetTickCount64();
 	Stream_Read_UINT16(s, rdpsnd->wTimeStamp);
 	Stream_Read_UINT16(s, wFormatNo);
+	g_waveInfoPduCount++;
+	g_lastWaveFormatNo = wFormatNo;
+	g_lastWaveBodySize = BodySize;
 
 	if (wFormatNo >= rdpsnd->NumberOfClientFormats)
 		return ERROR_INVALID_DATA;
@@ -679,6 +716,7 @@ static UINT rdpsnd_treat_wave(rdpsndPlugin* rdpsnd, wStream* s, size_t size)
  */
 static UINT rdpsnd_recv_wave_pdu(rdpsndPlugin* rdpsnd, wStream* s)
 {
+	g_wavePayloadPduCount++;
 	rdpsnd->expectingWave = FALSE;
 
 	/**
@@ -705,6 +743,9 @@ static UINT rdpsnd_recv_wave2_pdu(rdpsndPlugin* rdpsnd, wStream* s, UINT16 BodyS
 
 	Stream_Read_UINT16(s, rdpsnd->wTimeStamp);
 	Stream_Read_UINT16(s, wFormatNo);
+	g_wave2PduCount++;
+	g_lastWaveFormatNo = wFormatNo;
+	g_lastWaveBodySize = BodySize;
 	Stream_Read_UINT8(s, rdpsnd->cBlockNo);
 	Stream_Seek(s, 3); /* bPad */
 	Stream_Read_UINT32(s, dwAudioTimeStamp);
@@ -728,6 +769,7 @@ static UINT rdpsnd_recv_wave2_pdu(rdpsndPlugin* rdpsnd, wStream* s, UINT16 BodyS
 
 static void rdpsnd_recv_close_pdu(rdpsndPlugin* rdpsnd)
 {
+	g_closePduCount++;
 	if (rdpsnd->isOpen)
 	{
 		WLog_Print(rdpsnd->log, WLOG_DEBUG, "%s Closing device",
@@ -752,6 +794,7 @@ static UINT rdpsnd_recv_volume_pdu(rdpsndPlugin* rdpsnd, wStream* s)
 		return ERROR_BAD_LENGTH;
 
 	Stream_Read_UINT32(s, dwVolume);
+	g_setVolumePduCount++;
 	WLog_Print(rdpsnd->log, WLOG_DEBUG, "%s Volume: 0x%08" PRIX32 "",
 	           rdpsnd_is_dyn_str(rdpsnd->dynamic), dwVolume);
 
@@ -792,6 +835,7 @@ static UINT rdpsnd_recv_pdu(rdpsndPlugin* rdpsnd, wStream* s)
 	}
 
 	Stream_Read_UINT8(s, msgType); /* msgType */
+	g_lastMsgType = msgType;
 	Stream_Seek_UINT8(s);          /* bPad */
 	Stream_Read_UINT16(s, BodySize);
 
@@ -822,6 +866,7 @@ static UINT rdpsnd_recv_pdu(rdpsndPlugin* rdpsnd, wStream* s)
 			break;
 
 		default:
+			g_unknownPduCount++;
 			WLog_ERR(TAG, "%s unknown msgType %" PRIu8 "", rdpsnd_is_dyn_str(rdpsnd->dynamic),
 			         msgType);
 			break;

@@ -160,6 +160,10 @@ if(ANDROID)
   winpr_library_add_private(log)
 endif()
 
+if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
+  winpr_library_add_private(hilog_ndk.z)
+endif()
+
 # Level "1" API as defined for MinCore.lib
 set(WINPR_CORE
     synch
