@@ -451,9 +451,17 @@ static UINT rdpgfx_recv_caps_confirm_pdu(GENERIC_CHANNEL_CALLBACK* callback, wSt
 	Stream_Read_UINT32(s, capsSet.flags);   /* capsData (4 bytes) */
 	gfx->TotalDecodedFrames = 0;
 	gfx->ConnectionCaps = capsSet;
-	WLog_Print(gfx->base.log, WLOG_DEBUG,
-	           "RecvCapsConfirmPdu: version: %s [0x%08" PRIX32 "] flags: 0x%08" PRIX32 "",
-	           rdpgfx_caps_version_str(capsSet.version), capsSet.version, capsSet.flags);
+	const BOOL avc420 = (capsSet.version == RDPGFX_CAPVERSION_81) &&
+	                    ((capsSet.flags & RDPGFX_CAPS_FLAG_AVC420_ENABLED) != 0);
+	const BOOL avc444 = (capsSet.version == RDPGFX_CAPVERSION_101) ||
+	                    ((capsSet.version >= RDPGFX_CAPVERSION_10) &&
+	                     ((capsSet.flags & RDPGFX_CAPS_FLAG_AVC_DISABLED) == 0));
+	WLog_Print(gfx->base.log, WLOG_WARN,
+	           "RecvCapsConfirmPdu: version: %s [0x%08" PRIX32 "] flags: 0x%08" PRIX32
+	           " avc420=%s avc444=%s avcThinClient=%s",
+	           rdpgfx_caps_version_str(capsSet.version), capsSet.version, capsSet.flags,
+	           avc420 ? "yes" : "no", avc444 ? "yes" : "no",
+	           (capsSet.flags & RDPGFX_CAPS_FLAG_AVC_THINCLIENT) ? "yes" : "no");
 
 	if (!context)
 		return ERROR_BAD_CONFIGURATION;
