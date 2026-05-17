@@ -32,6 +32,14 @@ set(SRCS
     smartcard_cli.c
 )
 
+if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
+  list(APPEND SRCS
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_display.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_graphics.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_ime.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_keyboard.c)
+endif()
+
 foreach(FREERDP_CHANNELS_CLIENT_SRC ${FREERDP_CHANNELS_CLIENT_SRCS})
   get_filename_component(NINC ${FREERDP_CHANNELS_CLIENT_SRC} PATH)
   include_directories(${NINC})
