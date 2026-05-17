@@ -861,6 +861,59 @@ static INT32 gdi_SurfaceCommand_AVC444_OhosSurfaces(gdiGfxSurface* surface,
 		                                      bs->LC, codecId);
 	return rc;
 }
+
+static INT32 gdi_SurfaceCommand_AVC444_PrimaryOhosSurface(
+    gdiGfxSurface* surface, const RDPGFX_AVC444_BITMAP_STREAM* bs,
+    const RDPGFX_AVC420_BITMAP_STREAM* avc1, const RDPGFX_H264_METABLOCK* meta1)
+{
+	INT32 rc = 0;
+	static BOOL primaryRouteLogged = FALSE;
+	static BOOL chromaOnlySkipLogged = FALSE;
+
+	if (!surface || !bs || !avc1 || !meta1)
+		return -1101;
+
+	if (bs->LC == 2)
+	{
+		if (surface->h264 && surface->h264->ohosSurfaceModeAllowed &&
+		    !surface->h264->ohosAvcodecRuntimeDisabled)
+		{
+			if (!chromaOnlySkipLogged)
+			{
+				WLog_INFO(TAG,
+				          "OHOS AVCodec AVC444 primary surface route skipping chroma-only update");
+				chromaOnlySkipLogged = TRUE;
+			}
+			return 0;
+		}
+		return -1102;
+	}
+
+	if (!avc1->data || (avc1->length == 0))
+		return -1103;
+
+	if (!gdi_ensure_ohos_surface_h264_context(&surface->h264, surface->width, surface->height,
+	                                          H264_OHOS_SURFACE_DEFAULT))
+		return -1104;
+
+	rc = avc420_decompress(surface->h264, avc1->data, avc1->length, surface->data,
+	                       surface->format, surface->scanline, surface->width, surface->height,
+	                       meta1->regionRects, meta1->numRegionRects);
+	if (rc < 0)
+		return rc;
+
+	if (!surface->h264->surfaceRendered)
+		return -1105;
+
+	if (!primaryRouteLogged)
+	{
+		WLog_INFO(TAG,
+		          "OHOS AVCodec AVC444 primary AVC420 stream rendered to output surface; "
+		          "bypassing CPU AVC444 composition");
+		primaryRouteLogged = TRUE;
+	}
+	return 0;
+}
 #endif
 
 /**
@@ -894,6 +947,37 @@ static UINT gdi_SurfaceCommand_AVC444(rdpGdi* gdi, RdpgfxClientContext* context,
 		return ERROR_NOT_FOUND;
 	}
 
+	if (!is_within_surface(surface, cmd))
+		return ERROR_INVALID_DATA;
+
+	bs = (RDPGFX_AVC444_BITMAP_STREAM*)cmd->extra;
+
+	if (!bs)
+		return ERROR_INTERNAL_ERROR;
+
+	avc1 = &bs->bitstream[0];
+	avc2 = &bs->bitstream[1];
+	meta1 = &avc1->meta;
+	meta2 = &avc2->meta;
+
+#if defined(WITH_OHOS_AVCODEC)
+	rc = gdi_SurfaceCommand_AVC444_PrimaryOhosSurface(surface, bs, avc1, meta1);
+	if (rc == 0)
+		return CHANNEL_RC_OK;
+	else if ((rc != -1102) && (rc != -1104) && (rc != H264_OHOS_AVCODEC_FALLBACK_RC))
+		WLog_WARN(TAG, "OHOS AVC444 primary surface route unavailable rc=%" PRId32
+		                "; using CPU/GDI fallback",
+		          rc);
+
+	rc = gdi_SurfaceCommand_AVC444_OhosSurfaces(surface, bs, avc1, avc2, meta1, meta2,
+	                                           cmd->codecId);
+	if (rc == 0)
+		goto surfaceDecoded;
+	else if (rc != -1002)
+		WLog_WARN(TAG, "OHOS AVC444 surface route unavailable rc=%" PRId32 "; using CPU/GDI fallback",
+		          rc);
+#endif
+
 	if (!surface->h264)
 	{
 		surface->h264 = h264_context_new(FALSE);
@@ -916,29 +1000,6 @@ static UINT gdi_SurfaceCommand_AVC444(rdpGdi* gdi, RdpgfxClientContext* context,
 		if (!h264_context_reset(surface->h264, surface->width, surface->height))
 			return ERROR_INTERNAL_ERROR;
 	}
-
-	if (!is_within_surface(surface, cmd))
-		return ERROR_INVALID_DATA;
-
-	bs = (RDPGFX_AVC444_BITMAP_STREAM*)cmd->extra;
-
-	if (!bs)
-		return ERROR_INTERNAL_ERROR;
-
-	avc1 = &bs->bitstream[0];
-	avc2 = &bs->bitstream[1];
-	meta1 = &avc1->meta;
-	meta2 = &avc2->meta;
-
-#if defined(WITH_OHOS_AVCODEC)
-	rc = gdi_SurfaceCommand_AVC444_OhosSurfaces(surface, bs, avc1, avc2, meta1, meta2,
-	                                           cmd->codecId);
-	if (rc == 0)
-		goto surfaceDecoded;
-	else if (rc != -1002)
-		WLog_WARN(TAG, "OHOS AVC444 surface route unavailable rc=%" PRId32 "; using CPU/GDI fallback",
-		          rc);
-#endif
 
 	rc = avc444_decompress(surface->h264, bs->LC, meta1->regionRects, meta1->numRegionRects,
 	                       avc1->data, avc1->length, meta2->regionRects, meta2->numRegionRects,
