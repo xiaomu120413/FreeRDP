@@ -22,7 +22,11 @@ Current contents:
 - `ohos_clipboard.*`: owns the HarmonyOS Pasteboard backend and `cliprdr` client
   callbacks for text clipboard redirection. The HAP keeps only permission and
   lifecycle wiring.
+- `ohos_graphics.*`: owns HarmonyOS graphics-mode parsing, fallback policy,
+  H.264 desktop alignment and RDPGFX AVC420/AVC444 capability/surface-command
+  decisions.
 
 Planned migration:
 
-- RDPGFX/AVC policy glue that keeps the HAP passing only `graphicsMode`.
+- GPU composition and multi-surface AVC444 routing beyond the current policy
+  helpers.
