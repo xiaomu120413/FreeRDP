@@ -40,6 +40,7 @@
 #define OHOS_AVCODEC_SURFACE_OUTPUT_WAIT_MS 2
 #define OHOS_AVCODEC_BUFFER_OUTPUT_TIMEOUT_LIMIT 30
 #define OHOS_AVCODEC_SURFACE_OUTPUT_TIMEOUT_LIMIT 120
+#define OHOS_AVCODEC_SURFACE_RENDER_INTERVAL_NS 33333333ULL
 
 typedef struct
 {
@@ -69,6 +70,7 @@ typedef struct
 	UINT64 inputWaitTimeouts;
 	UINT64 outputWaitTimeouts;
 	UINT64 droppedOutputFrames;
+	UINT64 lastSurfaceRenderNs;
 	BOOL outputReady;
 	BOOL unsupportedFormatLogged;
 	BOOL inputQueueFullLogged;
@@ -380,6 +382,13 @@ static void ohos_avcodec_make_deadline(struct timespec* deadline, UINT32 timeout
 		deadline->tv_sec++;
 		deadline->tv_nsec -= 1000000000L;
 	}
+}
+
+static UINT64 ohos_avcodec_now_ns(void)
+{
+	struct timespec now = { 0 };
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	return ((UINT64)now.tv_sec * 1000000000ULL) + (UINT64)now.tv_nsec;
 }
 
 static void ohos_avcodec_read_output_format(H264_CONTEXT_OHOS_AVCODEC* sys, OH_AVFormat* format)
@@ -742,7 +751,11 @@ static void ohos_avcodec_on_new_output_buffer(OH_AVCodec* codec, uint32_t index,
 {
 	OH_AVCodecBufferAttr attr = { 0 };
 	H264_CONTEXT_OHOS_AVCODEC* sys = (H264_CONTEXT_OHOS_AVCODEC*)userData;
+	OH_AVCodec* decoder = codec;
 	BOOL copied = FALSE;
+	BOOL surfaceMode = FALSE;
+	BOOL renderSurface = FALSE;
+	BOOL releaseSurface = FALSE;
 	WINPR_UNUSED(codec);
 
 	if (!sys || !sys->primitivesReady || !buffer)
@@ -754,35 +767,79 @@ static void ohos_avcodec_on_new_output_buffer(OH_AVCodec* codec, uint32_t index,
 	if ((attr.flags & AVCODEC_BUFFER_FLAGS_EOS) == 0)
 	{
 		pthread_mutex_lock(&sys->lock);
-		if (sys->outputReady)
-			sys->droppedOutputFrames++;
-
-		if (sys->surfaceMode)
+		surfaceMode = sys->surfaceMode;
+		decoder = sys->decoder;
+		if (surfaceMode)
 		{
-			const OH_AVErrCode rc = OH_VideoDecoder_RenderOutputBuffer(sys->decoder, index);
-			copied = (rc == AV_ERR_OK);
-			if (!copied && (sys->failedFrames <= 3))
-				WLog_Print(sys->log, WLOG_WARN, "OHOS AVCodec render output surface failed rc=%d",
-				           (int)rc);
-		}
-		else
-		{
-			copied = ohos_avcodec_copy_output_to_callback(sys, buffer, &attr);
-		}
-		if (copied)
-		{
-			sys->outputReady = TRUE;
+			const UINT64 nowNs = ohos_avcodec_now_ns();
+			if ((sys->lastSurfaceRenderNs == 0) ||
+			    (nowNs - sys->lastSurfaceRenderNs >= OHOS_AVCODEC_SURFACE_RENDER_INTERVAL_NS))
+			{
+				sys->lastSurfaceRenderNs = nowNs;
+				sys->decodedFrames++;
+				renderSurface = TRUE;
+			}
+			else
+			{
+				sys->droppedOutputFrames++;
+				releaseSurface = TRUE;
+			}
+			sys->outputReady = FALSE;
 			pthread_cond_broadcast(&sys->cond);
 		}
 		else
 		{
-			sys->failedFrames++;
+			if (sys->outputReady)
+				sys->droppedOutputFrames++;
+			copied = ohos_avcodec_copy_output_to_callback(sys, buffer, &attr);
+			if (copied)
+			{
+				sys->outputReady = TRUE;
+				pthread_cond_broadcast(&sys->cond);
+			}
+			else
+			{
+				sys->failedFrames++;
+			}
 		}
 		pthread_mutex_unlock(&sys->lock);
 	}
+	else
+	{
+		pthread_mutex_lock(&sys->lock);
+		surfaceMode = sys->surfaceMode;
+		decoder = sys->decoder;
+		releaseSurface = surfaceMode;
+		pthread_mutex_unlock(&sys->lock);
+	}
 
-	if (!sys->surfaceMode)
-		OH_VideoDecoder_FreeOutputBuffer(sys->decoder, index);
+	if (surfaceMode)
+	{
+		OH_AVErrCode rc = AV_ERR_OK;
+		if (!decoder)
+			rc = AV_ERR_INVALID_VAL;
+		else if (renderSurface)
+			rc = OH_VideoDecoder_RenderOutputBuffer(decoder, index);
+		else if (releaseSurface)
+			rc = OH_VideoDecoder_FreeOutputBuffer(decoder, index);
+
+		if (rc != AV_ERR_OK)
+		{
+			pthread_mutex_lock(&sys->lock);
+			sys->failedFrames++;
+			pthread_mutex_unlock(&sys->lock);
+			if (sys->failedFrames <= 3)
+				WLog_Print(sys->log, WLOG_WARN,
+				           "OHOS AVCodec surface output release failed rc=%d render=%d",
+				           (int)rc, renderSurface ? 1 : 0);
+		}
+		ohos_avcodec_record_progress(sys);
+	}
+	else
+	{
+		if (sys->decoder)
+			OH_VideoDecoder_FreeOutputBuffer(sys->decoder, index);
+	}
 }
 
 static void ohos_avcodec_reset_async_state(H264_CONTEXT_OHOS_AVCODEC* sys)
@@ -797,6 +854,7 @@ static void ohos_avcodec_reset_async_state(H264_CONTEXT_OHOS_AVCODEC* sys)
 	sys->outputReady = FALSE;
 	sys->asyncError = 0;
 	sys->readySize = 0;
+	sys->lastSurfaceRenderNs = 0;
 	pthread_cond_broadcast(&sys->cond);
 	pthread_mutex_unlock(&sys->lock);
 }
@@ -1173,7 +1231,11 @@ static int ohos_avcodec_decompress(H264_CONTEXT* WINPR_RESTRICT h264,
 	}
 
 	if (sys->surfaceMode)
+	{
 		h264->surfaceRendered = TRUE;
+		ohos_avcodec_record_progress(sys);
+		return 1;
+	}
 
 	pthread_mutex_lock(&sys->lock);
 	hasOutput = ohos_avcodec_wait_for_output(h264, sys);
