@@ -1178,12 +1178,22 @@ static int ohos_avcodec_decompress(H264_CONTEXT* WINPR_RESTRICT h264,
 	if (!ohos_avcodec_wait_for_input(sys, &inputIndex, &inputBuffer))
 	{
 		const int32_t asyncError = sys->asyncError;
+		const BOOL surfaceMode = sys->surfaceMode;
 		pthread_mutex_unlock(&sys->lock);
 		sys->inputWaitTimeouts++;
 		sys->noOutputFrames++;
 		ohos_avcodec_record_progress(sys);
 		if (asyncError != 0)
 			return ohos_avcodec_request_software_fallback(h264, sys, "async input error");
+		if (surfaceMode)
+		{
+			if ((sys->inputWaitTimeouts <= 3) || ((sys->inputWaitTimeouts % 120) == 0))
+				WLog_Print(h264->log, WLOG_WARN,
+				           "OHOS AVCodec surface input backpressure count=%" PRIu64
+				           " calls=%" PRIu64 "; keeping hardware decoder",
+				           sys->inputWaitTimeouts, sys->decodeCalls);
+			return 0;
+		}
 		if (sys->inputWaitTimeouts >= 6)
 			return ohos_avcodec_request_software_fallback(h264, sys, "input buffer starvation");
 		if ((sys->inputWaitTimeouts <= 3) || ((sys->inputWaitTimeouts % 120) == 0))
