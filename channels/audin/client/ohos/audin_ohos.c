@@ -11,12 +11,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 #include <ohaudio/native_audiocapturer.h>
 #include <ohaudio/native_audiostreambuilder.h>
 
 #include <winpr/assert.h>
 #include <winpr/crt.h>
+#include <winpr/error.h>
 #include <winpr/synch.h>
 
 #include <freerdp/addin.h>
@@ -43,9 +45,17 @@ typedef struct
 	wLog* log;
 } AudinOhosDevice;
 
+typedef BOOL (*pfnAudinOhosPermissionRequest)(void* userData, UINT32 timeoutMs);
+
+static pthread_mutex_t g_permissionCallbackLock = PTHREAD_MUTEX_INITIALIZER;
+static pfnAudinOhosPermissionRequest g_permissionRequest = NULL;
+static void* g_permissionRequestUserData = NULL;
 static UINT64 g_registeredCount = 0;
 static UINT64 g_openCount = 0;
 static UINT64 g_closeCount = 0;
+static UINT64 g_permissionRequestCount = 0;
+static UINT64 g_permissionGrantedCount = 0;
+static UINT64 g_permissionDeniedCount = 0;
 static UINT64 g_callbackCount = 0;
 static UINT64 g_capturedBytes = 0;
 static UINT64 g_receiveErrorCount = 0;
@@ -87,12 +97,58 @@ static void audin_ohos_log_at(AudinOhosDevice* ohos, DWORD level, size_t line, c
 #define audin_ohos_log(ohos, level, ...) \
 	audin_ohos_log_at(ohos, level, __LINE__, __FILE__, __func__, __VA_ARGS__)
 
+FREERDP_API BOOL freerdp_audin_ohos_set_permission_callback(
+    pfnAudinOhosPermissionRequest callback, void* userData)
+{
+	pthread_mutex_lock(&g_permissionCallbackLock);
+	g_permissionRequest = callback;
+	g_permissionRequestUserData = userData;
+	pthread_mutex_unlock(&g_permissionCallbackLock);
+	return TRUE;
+}
+
+static BOOL audin_ohos_request_microphone_permission(AudinOhosDevice* ohos)
+{
+	pfnAudinOhosPermissionRequest callback = NULL;
+	void* userData = NULL;
+	BOOL granted = TRUE;
+
+	pthread_mutex_lock(&g_permissionCallbackLock);
+	callback = g_permissionRequest;
+	userData = g_permissionRequestUserData;
+	pthread_mutex_unlock(&g_permissionCallbackLock);
+
+	if (!callback)
+	{
+		audin_ohos_log(ohos, WLOG_DEBUG,
+		               "microphone permission callback is not registered; relying on OHAudio");
+		return TRUE;
+	}
+
+	++g_permissionRequestCount;
+	audin_ohos_log(ohos, WLOG_INFO,
+	               "requesting OHOS microphone permission before starting remote audio capture");
+	granted = callback(userData, 60000);
+	if (granted)
+	{
+		++g_permissionGrantedCount;
+		audin_ohos_log(ohos, WLOG_INFO, "OHOS microphone permission granted");
+		return TRUE;
+	}
+
+	++g_permissionDeniedCount;
+	audin_ohos_log(ohos, WLOG_WARN,
+	               "OHOS microphone permission denied or timed out; audin capture open rejected");
+	return FALSE;
+}
+
 FREERDP_API const char* freerdp_audin_ohos_get_diagnostics(void)
 {
-	static char buffer[900];
+	static char buffer[1000];
 	(void)snprintf(buffer, sizeof(buffer),
 	               "OHAudio audin stats: registered=%" PRIu64 " open=%" PRIu64
 	               " close=%" PRIu64 " callbacks=%" PRIu64
+	               " permission=requests:%" PRIu64 "/granted:%" PRIu64 "/denied:%" PRIu64
 	               " capturedBytes=%" PRIu64 " receiveErrors=%" PRIu64
 	               " streamEvents=%" PRIu64 " interrupts=%" PRIu64
 	               " errors=%" PRIu64 " formatChecks=%" PRIu64
@@ -103,7 +159,9 @@ FREERDP_API const char* freerdp_audin_ohos_get_diagnostics(void)
 	               " lastInterrupt=%" PRIu32 "/%" PRIu32 " lastError=%" PRIu32
 	               " lastRejected=tag=%" PRIu16 " rate=%" PRIu32
 	               " channels=%" PRIu16 " bits=%" PRIu16,
-	               g_registeredCount, g_openCount, g_closeCount, g_callbackCount, g_capturedBytes,
+	               g_registeredCount, g_openCount, g_closeCount, g_callbackCount,
+	               g_permissionRequestCount, g_permissionGrantedCount, g_permissionDeniedCount,
+	               g_capturedBytes,
 	               g_receiveErrorCount, g_streamEventCount, g_interruptCount, g_errorCallbackCount,
 	               g_formatCheckCount, g_formatSupportedCount, g_formatRejectedCount, g_lastRate,
 	               g_lastChannels, g_lastBitsPerSample, g_lastFramesPerPacket,
@@ -374,6 +432,8 @@ static UINT audin_ohos_open(IAudinDevice* device, AudinReceive receive, void* us
 		return ERROR_ALREADY_INITIALIZED;
 	if (ohos->bytesPerFrame == 0)
 		return ERROR_INVALID_DATA;
+	if (!audin_ohos_request_microphone_permission(ohos))
+		return ERROR_ACCESS_DENIED;
 
 	EnterCriticalSection(&ohos->lock);
 	ohos->receive = receive;
