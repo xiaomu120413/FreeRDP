@@ -98,6 +98,7 @@
 #define VK_OEM_6 0xDDu
 #define VK_OEM_7 0xDEu
 
+#define OHOS_RDP_SCANCODE_EXTENDED 0x0100u
 #define OHOS_KEYBOARD_MAX_PRESSED 64u
 #define OHOS_KEYBOARD_MAX_SYNTHETIC_MODIFIERS 32u
 #define OHOS_KEYBOARD_REPEAT_INITIAL_DELAY_MS 450u
@@ -225,11 +226,16 @@ static int freerdp_ohos_keyboard_push_packet(FREERDP_OHOS_KEY_PACKET* packets, s
                                              size_t* count, uint32_t keyCode, uint32_t windowsVk,
                                              int down, int repeat, int extended, int synthetic)
 {
+	uint32_t rdpScancode = freerdp_ohos_keyboard_map_keycode_to_rdp_scancode(keyCode);
+
 	if (!packets || !count || (*count >= capacity))
+		return 0;
+	if (rdpScancode == 0)
 		return 0;
 
 	packets[*count].keyCode = keyCode;
 	packets[*count].windowsVk = windowsVk;
+	packets[*count].rdpScancode = rdpScancode;
 	packets[*count].down = down;
 	packets[*count].repeat = repeat;
 	packets[*count].extended = extended;
@@ -608,6 +614,122 @@ uint32_t freerdp_ohos_keyboard_map_keycode_to_windows_vk(uint32_t keyCode)
 	}
 }
 
+uint32_t freerdp_ohos_keyboard_map_keycode_to_rdp_scancode(uint32_t keyCode)
+{
+	static const uint32_t letterScancodes[] = {
+		0x1Eu, 0x30u, 0x2Eu, 0x20u, 0x12u, 0x21u, 0x22u, 0x23u, 0x17u,
+		0x24u, 0x25u, 0x26u, 0x32u, 0x31u, 0x18u, 0x19u, 0x10u, 0x13u,
+		0x1Fu, 0x14u, 0x16u, 0x2Fu, 0x11u, 0x2Du, 0x15u, 0x2Cu
+	};
+	static const uint32_t digitScancodes[] = {
+		0x0Bu, 0x02u, 0x03u, 0x04u, 0x05u, 0x06u, 0x07u, 0x08u, 0x09u, 0x0Au
+	};
+	static const uint32_t numpadScancodes[] = {
+		0x52u, 0x4Fu, 0x50u, 0x51u, 0x4Bu, 0x4Cu, 0x4Du, 0x47u, 0x48u, 0x49u
+	};
+
+	if ((keyCode >= OH_KEYCODE_A) && (keyCode <= OH_KEYCODE_Z))
+		return letterScancodes[keyCode - OH_KEYCODE_A];
+	if ((keyCode >= OH_KEYCODE_0) && (keyCode <= OH_KEYCODE_9))
+		return digitScancodes[keyCode - OH_KEYCODE_0];
+	if ((keyCode >= OH_KEYCODE_F1) && (keyCode <= OH_KEYCODE_F12))
+	{
+		if (keyCode <= (OH_KEYCODE_F1 + 9u))
+			return 0x3Bu + keyCode - OH_KEYCODE_F1;
+		if (keyCode == (OH_KEYCODE_F1 + 10u))
+			return 0x57u;
+		return 0x58u;
+	}
+	if ((keyCode >= OH_KEYCODE_NUMPAD_0) && (keyCode <= OH_KEYCODE_NUMPAD_9))
+		return numpadScancodes[keyCode - OH_KEYCODE_NUMPAD_0];
+
+	switch (keyCode)
+	{
+		case OH_KEYCODE_DPAD_UP:
+			return OHOS_RDP_SCANCODE_EXTENDED | 0x48u;
+		case OH_KEYCODE_DPAD_DOWN:
+			return OHOS_RDP_SCANCODE_EXTENDED | 0x50u;
+		case OH_KEYCODE_DPAD_LEFT:
+			return OHOS_RDP_SCANCODE_EXTENDED | 0x4Bu;
+		case OH_KEYCODE_DPAD_RIGHT:
+			return OHOS_RDP_SCANCODE_EXTENDED | 0x4Du;
+		case OH_KEYCODE_COMMA:
+			return 0x33u;
+		case OH_KEYCODE_PERIOD:
+			return 0x34u;
+		case OH_KEYCODE_ALT_LEFT:
+			return 0x38u;
+		case OH_KEYCODE_ALT_RIGHT:
+			return OHOS_RDP_SCANCODE_EXTENDED | 0x38u;
+		case OH_KEYCODE_SHIFT_LEFT:
+			return 0x2Au;
+		case OH_KEYCODE_SHIFT_RIGHT:
+			return 0x36u;
+		case OH_KEYCODE_TAB:
+			return 0x0Fu;
+		case OH_KEYCODE_SPACE:
+			return 0x39u;
+		case OH_KEYCODE_ENTER:
+			return 0x1Cu;
+		case OH_KEYCODE_NUMPAD_ENTER:
+			return OHOS_RDP_SCANCODE_EXTENDED | 0x1Cu;
+		case OH_KEYCODE_DEL:
+			return 0x0Eu;
+		case OH_KEYCODE_GRAVE:
+			return 0x29u;
+		case OH_KEYCODE_MINUS:
+			return 0x0Cu;
+		case OH_KEYCODE_EQUALS:
+			return 0x0Du;
+		case OH_KEYCODE_LEFT_BRACKET:
+			return 0x1Au;
+		case OH_KEYCODE_RIGHT_BRACKET:
+			return 0x1Bu;
+		case OH_KEYCODE_BACKSLASH:
+			return 0x2Bu;
+		case OH_KEYCODE_SEMICOLON:
+			return 0x27u;
+		case OH_KEYCODE_APOSTROPHE:
+			return 0x28u;
+		case OH_KEYCODE_SLASH:
+			return 0x35u;
+		case OH_KEYCODE_PAGE_UP:
+			return OHOS_RDP_SCANCODE_EXTENDED | 0x49u;
+		case OH_KEYCODE_PAGE_DOWN:
+			return OHOS_RDP_SCANCODE_EXTENDED | 0x51u;
+		case OH_KEYCODE_ESCAPE:
+			return 0x01u;
+		case OH_KEYCODE_FORWARD_DEL:
+			return OHOS_RDP_SCANCODE_EXTENDED | 0x53u;
+		case OH_KEYCODE_CTRL_LEFT:
+			return 0x1Du;
+		case OH_KEYCODE_CTRL_RIGHT:
+			return OHOS_RDP_SCANCODE_EXTENDED | 0x1Du;
+		case OH_KEYCODE_META_LEFT:
+			return OHOS_RDP_SCANCODE_EXTENDED | 0x5Bu;
+		case OH_KEYCODE_META_RIGHT:
+			return OHOS_RDP_SCANCODE_EXTENDED | 0x5Cu;
+		case OH_KEYCODE_MOVE_HOME:
+			return OHOS_RDP_SCANCODE_EXTENDED | 0x47u;
+		case OH_KEYCODE_MOVE_END:
+			return OHOS_RDP_SCANCODE_EXTENDED | 0x4Fu;
+		case OH_KEYCODE_INSERT:
+			return OHOS_RDP_SCANCODE_EXTENDED | 0x52u;
+		case OH_KEYCODE_NUMPAD_DIVIDE:
+			return OHOS_RDP_SCANCODE_EXTENDED | 0x35u;
+		case OH_KEYCODE_NUMPAD_MULTIPLY:
+			return 0x37u;
+		case OH_KEYCODE_NUMPAD_SUBTRACT:
+			return 0x4Au;
+		case OH_KEYCODE_NUMPAD_ADD:
+			return 0x4Eu;
+		case OH_KEYCODE_NUMPAD_DOT:
+			return 0x53u;
+		default:
+			return 0;
+	}
+}
+
 int freerdp_ohos_keyboard_keycode_requires_extended_scancode(uint32_t keyCode)
 {
 	switch (keyCode)
@@ -642,7 +764,8 @@ int freerdp_ohos_keyboard_resolve_event(const FREERDP_OHOS_KEY_EVENT* event,
 
 	resolved->keyCode = event->keyCode;
 	resolved->windowsVk = freerdp_ohos_keyboard_map_keycode_to_windows_vk(event->keyCode);
-	resolved->mapped = resolved->windowsVk != 0;
+	resolved->rdpScancode = freerdp_ohos_keyboard_map_keycode_to_rdp_scancode(event->keyCode);
+	resolved->mapped = (resolved->windowsVk != 0) && (resolved->rdpScancode != 0);
 	resolved->extended = freerdp_ohos_keyboard_keycode_requires_extended_scancode(event->keyCode);
 	resolved->down = event->down;
 	resolved->repeat = event->repeat;
@@ -663,9 +786,9 @@ int freerdp_ohos_keyboard_format_event(const FREERDP_OHOS_KEY_EVENT* event, char
 
 	(void)freerdp_ohos_keyboard_resolve_event(event, &resolved);
 	return snprintf(buffer, size,
-	                "ohos.key keyCode=%u vk=0x%X mapped=%s extended=%s down=%s repeat=%s "
+	                "ohos.key keyCode=%u vk=0x%X scancode=0x%X mapped=%s extended=%s down=%s repeat=%s "
 	                "ctrl=%s shift=%s alt=%s meta=%s",
-	                event->keyCode, resolved.windowsVk,
+	                event->keyCode, resolved.windowsVk, resolved.rdpScancode,
 	                freerdp_ohos_keyboard_bool_text(resolved.mapped),
 	                freerdp_ohos_keyboard_bool_text(resolved.extended),
 	                freerdp_ohos_keyboard_bool_text(event->down),

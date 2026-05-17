@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <freerdp/api.h>
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -24,6 +26,7 @@ typedef struct
 {
 	uint32_t keyCode;
 	uint32_t windowsVk;
+	uint32_t rdpScancode;
 	int mapped;
 	int extended;
 	int down;
@@ -38,6 +41,7 @@ typedef struct
 {
 	uint32_t keyCode;
 	uint32_t windowsVk;
+	uint32_t rdpScancode;
 	int down;
 	int repeat;
 	int extended;
@@ -46,26 +50,26 @@ typedef struct
 
 typedef struct freerdp_ohos_keyboard_state FREERDP_OHOS_KEYBOARD_STATE;
 
-uint32_t freerdp_ohos_keyboard_map_keycode_to_windows_vk(uint32_t keyCode);
-int freerdp_ohos_keyboard_keycode_requires_extended_scancode(uint32_t keyCode);
-int freerdp_ohos_keyboard_resolve_event(const FREERDP_OHOS_KEY_EVENT* event,
-                                        FREERDP_OHOS_KEY_RESOLVED* resolved);
-int freerdp_ohos_keyboard_format_event(const FREERDP_OHOS_KEY_EVENT* event, char* buffer,
-                                       size_t size);
+FREERDP_API uint32_t freerdp_ohos_keyboard_map_keycode_to_windows_vk(uint32_t keyCode);
+FREERDP_API uint32_t freerdp_ohos_keyboard_map_keycode_to_rdp_scancode(uint32_t keyCode);
+FREERDP_API int freerdp_ohos_keyboard_keycode_requires_extended_scancode(uint32_t keyCode);
+FREERDP_API int freerdp_ohos_keyboard_resolve_event(const FREERDP_OHOS_KEY_EVENT* event,
+                                                    FREERDP_OHOS_KEY_RESOLVED* resolved);
+FREERDP_API int freerdp_ohos_keyboard_format_event(const FREERDP_OHOS_KEY_EVENT* event,
+                                                   char* buffer, size_t size);
 
-FREERDP_OHOS_KEYBOARD_STATE* freerdp_ohos_keyboard_state_new(void);
-void freerdp_ohos_keyboard_state_free(FREERDP_OHOS_KEYBOARD_STATE* state);
-void freerdp_ohos_keyboard_state_reset(FREERDP_OHOS_KEYBOARD_STATE* state);
-int freerdp_ohos_keyboard_state_handle_event(FREERDP_OHOS_KEYBOARD_STATE* state,
-                                             const FREERDP_OHOS_KEY_EVENT* event,
-                                             FREERDP_OHOS_KEY_PACKET* packets, size_t capacity,
-                                             size_t* count);
-int freerdp_ohos_keyboard_state_collect_due_repeats(FREERDP_OHOS_KEYBOARD_STATE* state,
-                                                    FREERDP_OHOS_KEY_PACKET* packets,
-                                                    size_t capacity, size_t* count);
-int freerdp_ohos_keyboard_state_release_all(FREERDP_OHOS_KEYBOARD_STATE* state,
-                                            FREERDP_OHOS_KEY_PACKET* packets, size_t capacity,
-                                            size_t* count);
+FREERDP_API FREERDP_OHOS_KEYBOARD_STATE* freerdp_ohos_keyboard_state_new(void);
+FREERDP_API void freerdp_ohos_keyboard_state_free(FREERDP_OHOS_KEYBOARD_STATE* state);
+FREERDP_API void freerdp_ohos_keyboard_state_reset(FREERDP_OHOS_KEYBOARD_STATE* state);
+FREERDP_API int freerdp_ohos_keyboard_state_handle_event(
+    FREERDP_OHOS_KEYBOARD_STATE* state, const FREERDP_OHOS_KEY_EVENT* event,
+    FREERDP_OHOS_KEY_PACKET* packets, size_t capacity, size_t* count);
+FREERDP_API int freerdp_ohos_keyboard_state_collect_due_repeats(
+    FREERDP_OHOS_KEYBOARD_STATE* state, FREERDP_OHOS_KEY_PACKET* packets, size_t capacity,
+    size_t* count);
+FREERDP_API int freerdp_ohos_keyboard_state_release_all(FREERDP_OHOS_KEYBOARD_STATE* state,
+                                                        FREERDP_OHOS_KEY_PACKET* packets,
+                                                        size_t capacity, size_t* count);
 
 #ifdef __cplusplus
 }
