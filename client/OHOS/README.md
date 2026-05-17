@@ -25,8 +25,15 @@ Current contents:
 - `ohos_graphics.*`: owns HarmonyOS graphics-mode parsing, fallback policy,
   H.264 desktop alignment and RDPGFX AVC420/AVC444 capability/surface-command
   decisions.
+- `ohos_session_config.*`: owns the HarmonyOS default RDP settings and
+  standard channel request parameters for cliprdr, display-control,
+  rdpsnd/OHAudio playback and audin/OHAudio capture. The HAP validation shell
+  passes the selected graphics mode and receives log strings, but does not
+  hard-code those channel parameters.
 
 Planned migration:
 
-- GPU composition and multi-surface AVC444 routing beyond the current policy
-  helpers.
+- GPU composition and multi-surface AVC444 routing beyond the current
+  AVCodec/surface policy helpers.
+- A stable public include/install story for the OHOS helper headers if this
+  branch becomes a reusable SDK rather than a repo-local port.
