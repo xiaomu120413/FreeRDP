@@ -11,6 +11,7 @@
 
 #include <freerdp/channels/cliprdr.h>
 #include <freerdp/channels/disp.h>
+#include <freerdp/channels/rdpgfx.h>
 #include <freerdp/client/channels.h>
 #include <freerdp/settings_keys.h>
 #include <winpr/crt.h>
@@ -193,6 +194,14 @@ BOOL freerdp_ohos_session_add_standard_channels(rdpSettings* settings,
 			return FALSE;
 	}
 
+	if (config->graphicsPipeline)
+	{
+		const char* params[] = { RDPGFX_CHANNEL_NAME };
+		if (!ohos_session_add_dynamic_channel(settings, ARRAYSIZE(params), params, "rdpgfx",
+		                                      message, messageSize))
+			return FALSE;
+	}
+
 	if (config->audioPlayback)
 	{
 		char rate[32] = { 0 };
@@ -236,8 +245,10 @@ BOOL freerdp_ohos_session_add_standard_channels(rdpSettings* settings,
 
 	ohos_session_format_message(
 	    message, messageSize,
-	    "OHOS FreeRDP channels added: cliprdr=%d disp=%d rdpsnd=%d audin=%d audinCapture=%s",
-	    config->clipboard, config->displayControl, config->audioPlayback, config->audioCapture,
+	    "OHOS FreeRDP channels added: cliprdr=%d disp=%d rdpgfx=%d rdpsnd=%d audin=%d "
+	    "audinCapture=%s",
+	    config->clipboard, config->displayControl, config->graphicsPipeline,
+	    config->audioPlayback, config->audioCapture,
 	    (config->audioCaptureRate == 0 && config->audioCaptureChannels == 0) ? "negotiated"
 	                                                                         : "fixed");
 	return TRUE;
