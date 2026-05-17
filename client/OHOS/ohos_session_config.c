@@ -76,8 +76,8 @@ FREERDP_OHOS_SESSION_CONFIG freerdp_ohos_session_config_default(void)
 	config.audioPlaybackRate = 44100;
 	config.audioPlaybackChannels = 2;
 	config.audioPlaybackLatencyMs = 100;
-	config.audioCaptureRate = 44100;
-	config.audioCaptureChannels = 1;
+	config.audioCaptureRate = 0;
+	config.audioCaptureChannels = 0;
 	return config;
 }
 
@@ -216,17 +216,29 @@ BOOL freerdp_ohos_session_add_standard_channels(rdpSettings* settings,
 	{
 		char rate[32] = { 0 };
 		char channels[32] = { 0 };
-		(void)snprintf(rate, sizeof(rate), "rate:%" PRIu32, config->audioCaptureRate);
-		(void)snprintf(channels, sizeof(channels), "channel:%" PRIu32,
-		               config->audioCaptureChannels);
-		const char* params[] = { "audin", "sys:ohos", "format:1", rate, channels };
-		if (!ohos_session_add_dynamic_channel(settings, ARRAYSIZE(params), params, "audin",
+		const char* params[4] = { "audin", "sys:ohos" };
+		size_t paramCount = 2;
+		if (config->audioCaptureRate > 0)
+		{
+			(void)snprintf(rate, sizeof(rate), "rate:%" PRIu32, config->audioCaptureRate);
+			params[paramCount++] = rate;
+		}
+		if (config->audioCaptureChannels > 0)
+		{
+			(void)snprintf(channels, sizeof(channels), "channel:%" PRIu32,
+			               config->audioCaptureChannels);
+			params[paramCount++] = channels;
+		}
+		if (!ohos_session_add_dynamic_channel(settings, paramCount, params, "audin",
 		                                      message, messageSize))
 			return FALSE;
 	}
 
 	ohos_session_format_message(
-	    message, messageSize, "OHOS FreeRDP channels added: cliprdr=%d disp=%d rdpsnd=%d audin=%d",
-	    config->clipboard, config->displayControl, config->audioPlayback, config->audioCapture);
+	    message, messageSize,
+	    "OHOS FreeRDP channels added: cliprdr=%d disp=%d rdpsnd=%d audin=%d audinCapture=%s",
+	    config->clipboard, config->displayControl, config->audioPlayback, config->audioCapture,
+	    (config->audioCaptureRate == 0 && config->audioCaptureChannels == 0) ? "negotiated"
+	                                                                         : "fixed");
 	return TRUE;
 }

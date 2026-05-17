@@ -821,11 +821,11 @@ BOOL freerdp_dsp_ffmpeg_encode(FREERDP_DSP_CONTEXT* WINPR_RESTRICT context,
 	if (!freerdp_dsp_channel_mix(context, sdata, length, format, &data, &length, &fmt))
 		return FALSE;
 
-	/* Create input frame */
-	if (!ffmpeg_fill_frame(context->frame, format, data, length))
+	/* Create input frame from the post-mix PCM format. */
+	if (!ffmpeg_fill_frame(context->frame, &fmt, data, length))
 		return FALSE;
 
-	ffmpeg_setup_resample_frame(context, format);
+	ffmpeg_setup_resample_frame(context, &fmt);
 	/* Resample to desired format. */
 	if (!ffmpeg_resample_frame(context->rcontext, context->frame, context->resampled))
 		return FALSE;

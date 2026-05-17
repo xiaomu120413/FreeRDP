@@ -58,6 +58,10 @@ static UINT64 g_permissionGrantedCount = 0;
 static UINT64 g_permissionDeniedCount = 0;
 static UINT64 g_callbackCount = 0;
 static UINT64 g_capturedBytes = 0;
+static UINT64 g_deliveredCallbackCount = 0;
+static UINT64 g_deliveredBytes = 0;
+static UINT64 g_silentCallbackCount = 0;
+static UINT64 g_nonSilentCallbackCount = 0;
 static UINT64 g_receiveErrorCount = 0;
 static UINT64 g_streamEventCount = 0;
 static UINT64 g_interruptCount = 0;
@@ -70,6 +74,8 @@ static UINT16 g_lastChannels = 0;
 static UINT16 g_lastBitsPerSample = 0;
 static UINT32 g_lastFramesPerPacket = 0;
 static UINT32 g_lastCallbackBytes = 0;
+static UINT32 g_lastCapturePeak = 0;
+static UINT32 g_maxCapturePeak = 0;
 static UINT32 g_lastOhosResult = 0;
 static UINT32 g_lastStreamEvent = 0;
 static UINT32 g_lastInterruptType = 0;
@@ -144,12 +150,15 @@ static BOOL audin_ohos_request_microphone_permission(AudinOhosDevice* ohos)
 
 FREERDP_API const char* freerdp_audin_ohos_get_diagnostics(void)
 {
-	static char buffer[1000];
+	static char buffer[1400];
 	(void)snprintf(buffer, sizeof(buffer),
 	               "OHAudio audin stats: registered=%" PRIu64 " open=%" PRIu64
 	               " close=%" PRIu64 " callbacks=%" PRIu64
 	               " permission=requests:%" PRIu64 "/granted:%" PRIu64 "/denied:%" PRIu64
-	               " capturedBytes=%" PRIu64 " receiveErrors=%" PRIu64
+	               " capturedBytes=%" PRIu64 " delivered=%" PRIu64 "/%" PRIu64
+	               " receiveErrors=%" PRIu64
+	               " captureLevel=silent:%" PRIu64 "/nonSilent:%" PRIu64
+	               " peak:%" PRIu32 "/%" PRIu32
 	               " streamEvents=%" PRIu64 " interrupts=%" PRIu64
 	               " errors=%" PRIu64 " formatChecks=%" PRIu64
 	               " formatSupported=%" PRIu64 " formatRejected=%" PRIu64
@@ -161,13 +170,14 @@ FREERDP_API const char* freerdp_audin_ohos_get_diagnostics(void)
 	               " channels=%" PRIu16 " bits=%" PRIu16,
 	               g_registeredCount, g_openCount, g_closeCount, g_callbackCount,
 	               g_permissionRequestCount, g_permissionGrantedCount, g_permissionDeniedCount,
-	               g_capturedBytes,
-	               g_receiveErrorCount, g_streamEventCount, g_interruptCount, g_errorCallbackCount,
-	               g_formatCheckCount, g_formatSupportedCount, g_formatRejectedCount, g_lastRate,
-	               g_lastChannels, g_lastBitsPerSample, g_lastFramesPerPacket,
-	               g_lastCallbackBytes, g_lastOhosResult, g_lastStreamEvent, g_lastInterruptType,
-	               g_lastInterruptHint, g_lastError, g_lastRejectedFormatTag, g_lastRejectedRate,
-	               g_lastRejectedChannels, g_lastRejectedBitsPerSample);
+	               g_capturedBytes, g_deliveredCallbackCount, g_deliveredBytes,
+	               g_receiveErrorCount, g_silentCallbackCount, g_nonSilentCallbackCount,
+	               g_lastCapturePeak, g_maxCapturePeak, g_streamEventCount, g_interruptCount,
+	               g_errorCallbackCount, g_formatCheckCount, g_formatSupportedCount,
+	               g_formatRejectedCount, g_lastRate, g_lastChannels, g_lastBitsPerSample,
+	               g_lastFramesPerPacket, g_lastCallbackBytes, g_lastOhosResult, g_lastStreamEvent,
+	               g_lastInterruptType, g_lastInterruptHint, g_lastError, g_lastRejectedFormatTag,
+	               g_lastRejectedRate, g_lastRejectedChannels, g_lastRejectedBitsPerSample);
 	return buffer;
 }
 
@@ -204,8 +214,8 @@ static BOOL audin_ohos_format_supported(IAudinDevice* device, const AUDIO_FORMAT
 
 	++g_formatCheckCount;
 	supported = format->wFormatTag == WAVE_FORMAT_PCM && format->cbSize == 0 &&
-	            format->wBitsPerSample == 16 && format->nChannels >= 1 &&
-	            format->nChannels <= 2 && audin_ohos_rate_supported(format->nSamplesPerSec);
+	            format->wBitsPerSample == 16 && format->nChannels == 1 &&
+	            audin_ohos_rate_supported(format->nSamplesPerSec);
 
 	if (supported)
 	{
@@ -259,6 +269,26 @@ static OH_AudioStream_SampleFormat audin_ohos_sample_format(UINT16 bitsPerSample
 	return bitsPerSample == 16 ? AUDIOSTREAM_SAMPLE_S16LE : AUDIOSTREAM_SAMPLE_U8;
 }
 
+static UINT32 audin_ohos_pcm16_peak(const void* buffer, int32_t length)
+{
+	UINT32 peak = 0;
+	const BYTE* bytes = (const BYTE*)buffer;
+	const size_t samples = (size_t)length / sizeof(int16_t);
+
+	for (size_t x = 0; x < samples; x++)
+	{
+		int16_t sample = 0;
+		memcpy(&sample, &bytes[x * sizeof(sample)], sizeof(sample));
+		const UINT32 magnitude = sample == INT16_MIN
+		                             ? 32768U
+		                             : (UINT32)(sample < 0 ? -sample : sample);
+		if (magnitude > peak)
+			peak = magnitude;
+	}
+
+	return peak;
+}
+
 static int32_t audin_ohos_on_read_data(OH_AudioCapturer* capturer, void* userData, void* buffer,
                                        int32_t length)
 {
@@ -286,6 +316,17 @@ static int32_t audin_ohos_on_read_data(OH_AudioCapturer* capturer, void* userDat
 	++g_callbackCount;
 	g_lastCallbackBytes = (UINT32)length;
 	g_capturedBytes += (UINT32)length;
+	if (format.wBitsPerSample == 16)
+	{
+		const UINT32 peak = audin_ohos_pcm16_peak(buffer, length);
+		g_lastCapturePeak = peak;
+		if (peak > g_maxCapturePeak)
+			g_maxCapturePeak = peak;
+		if (peak > 256U)
+			++g_nonSilentCallbackCount;
+		else
+			++g_silentCallbackCount;
+	}
 
 	const UINT error = receive(&format, (const BYTE*)buffer, (size_t)length, receiveUserData);
 	if (error)
@@ -295,6 +336,12 @@ static int32_t audin_ohos_on_read_data(OH_AudioCapturer* capturer, void* userDat
 			setChannelError(ohos->rdpcontext, error,
 			                "audin_ohos_on_read_data reported an error");
 	}
+	else
+	{
+		++g_deliveredCallbackCount;
+		g_deliveredBytes += (UINT32)length;
+	}
+
 	return 0;
 }
 
@@ -416,7 +463,10 @@ static UINT audin_ohos_close(IAudinDevice* device)
 	}
 
 	++g_closeCount;
-	audin_ohos_log(ohos, WLOG_INFO, "capturer closed");
+	if (capturer)
+		audin_ohos_log(ohos, WLOG_INFO, "capturer closed");
+	else
+		audin_ohos_log(ohos, WLOG_DEBUG, "capturer close ignored: no active capturer");
 	return CHANNEL_RC_OK;
 }
 
