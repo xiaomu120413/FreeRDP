@@ -15,10 +15,14 @@ Current contents:
   synthesis, long-press repeat generation and release-all cleanup. The HAP
   native bridge calls this source instead of owning the mapping or keyboard
   state itself.
+- `ohos_ime.*`: dispatches committed IME text through FreeRDP Unicode keyboard
+  events.
+- `ohos_display.*`: normalizes the XComponent size and sends `disp` monitor
+  layout updates.
+- `ohos_clipboard.*`: owns the HarmonyOS Pasteboard backend and `cliprdr` client
+  callbacks for text clipboard redirection. The HAP keeps only permission and
+  lifecycle wiring.
 
 Planned migration:
 
-- IME Unicode dispatch helper.
-- `cliprdr` + OH_Pasteboard backend.
-- Display-control resize helper around `disp`.
 - RDPGFX/AVC policy glue that keeps the HAP passing only `graphicsMode`.
