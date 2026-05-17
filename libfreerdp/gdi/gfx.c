@@ -754,6 +754,19 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 		return CHANNEL_RC_OK;
 	}
 
+	if (surface->h264->surfaceRendered)
+	{
+		static BOOL surfaceBypassLogged = FALSE;
+
+		if (!surfaceBypassLogged)
+		{
+			WLog_INFO(TAG,
+			          "OHOS AVCodec AVC420 surface rendered; bypassing GDI surface invalidation");
+			surfaceBypassLogged = TRUE;
+		}
+		return CHANNEL_RC_OK;
+	}
+
 	for (UINT32 i = 0; i < meta->numRegionRects; i++)
 	{
 		if (!region16_union_rect(&(surface->invalidRegion), &(surface->invalidRegion),

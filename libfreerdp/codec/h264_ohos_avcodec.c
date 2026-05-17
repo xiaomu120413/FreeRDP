@@ -37,6 +37,9 @@
 #define OHOS_AVCODEC_INPUT_QUEUE_LENGTH 32
 #define OHOS_AVCODEC_INPUT_WAIT_MS 50
 #define OHOS_AVCODEC_OUTPUT_WAIT_MS 25
+#define OHOS_AVCODEC_SURFACE_OUTPUT_WAIT_MS 2
+#define OHOS_AVCODEC_BUFFER_OUTPUT_TIMEOUT_LIMIT 30
+#define OHOS_AVCODEC_SURFACE_OUTPUT_TIMEOUT_LIMIT 120
 
 typedef struct
 {
@@ -647,11 +650,13 @@ static BOOL ohos_avcodec_wait_for_output(H264_CONTEXT* h264, H264_CONTEXT_OHOS_A
 {
 	struct timespec deadline = { 0 };
 	int rc = 0;
+	const UINT32 waitMs = (sys && sys->surfaceMode) ? OHOS_AVCODEC_SURFACE_OUTPUT_WAIT_MS
+	                                                : OHOS_AVCODEC_OUTPUT_WAIT_MS;
 
 	if (!h264 || !sys)
 		return FALSE;
 
-	ohos_avcodec_make_deadline(&deadline, OHOS_AVCODEC_OUTPUT_WAIT_MS);
+	ohos_avcodec_make_deadline(&deadline, waitMs);
 	while (!sys->outputReady && (sys->asyncError == 0))
 	{
 		rc = pthread_cond_timedwait(&sys->cond, &sys->lock, &deadline);
@@ -1167,6 +1172,9 @@ static int ohos_avcodec_decompress(H264_CONTEXT* WINPR_RESTRICT h264,
 		return ohos_avcodec_request_software_fallback(h264, sys, "push input failed");
 	}
 
+	if (sys->surfaceMode)
+		h264->surfaceRendered = TRUE;
+
 	pthread_mutex_lock(&sys->lock);
 	hasOutput = ohos_avcodec_wait_for_output(h264, sys);
 	pthread_mutex_unlock(&sys->lock);
@@ -1179,7 +1187,8 @@ static int ohos_avcodec_decompress(H264_CONTEXT* WINPR_RESTRICT h264,
 		ohos_avcodec_record_progress(sys);
 		if (asyncError != 0)
 			return ohos_avcodec_request_software_fallback(h264, sys, "async output error");
-		if (sys->outputWaitTimeouts >= 30)
+		if (sys->outputWaitTimeouts >= (sys->surfaceMode ? OHOS_AVCODEC_SURFACE_OUTPUT_TIMEOUT_LIMIT
+		                                                 : OHOS_AVCODEC_BUFFER_OUTPUT_TIMEOUT_LIMIT))
 			return ohos_avcodec_request_software_fallback(h264, sys, "output buffer starvation");
 		if ((sys->outputWaitTimeouts <= 3) || ((sys->outputWaitTimeouts % 120) == 0))
 			WLog_Print(h264->log, WLOG_DEBUG,
