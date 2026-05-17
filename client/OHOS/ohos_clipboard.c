@@ -7,6 +7,7 @@
 
 #include "ohos_clipboard.h"
 
+#include <ctype.h>
 #include <inttypes.h>
 #include <pthread.h>
 #include <stdarg.h>
@@ -21,13 +22,37 @@
 #include <database/udmf/udmf.h>
 #include <database/udmf/udmf_err_code.h>
 #include <database/udmf/uds.h>
+#include <multimedia/image_framework/image/pixelmap_native.h>
 
 #include <freerdp/channels/cliprdr.h>
 #include <freerdp/client/cliprdr.h>
 #include <freerdp/event.h>
 #include <winpr/clipboard.h>
+#include <winpr/image.h>
 
 #define OHOS_CLIPBOARD_ECHO_SUPPRESS_MS 1500ULL
+#define OHOS_CLIPBOARD_FORMAT_HTML 0xC001U
+#define OHOS_CLIPBOARD_FORMAT_URIW 0xC002U
+#define OHOS_CLIPBOARD_FORMAT_URI_LIST 0xC003U
+
+static const char OHOS_CLIPBOARD_HTML_FORMAT_NAME[] = "HTML Format";
+static const char OHOS_CLIPBOARD_TEXT_HTML_FORMAT_NAME[] = "text/html";
+static const char OHOS_CLIPBOARD_URIW_FORMAT_NAME[] = "UniformResourceLocatorW";
+static const char OHOS_CLIPBOARD_URI_FORMAT_NAME[] = "UniformResourceLocator";
+static const char OHOS_CLIPBOARD_URI_LIST_FORMAT_NAME[] = "text/uri-list";
+static const char OHOS_CLIPBOARD_IMAGE_BMP_FORMAT_NAME[] = "image/bmp";
+
+typedef enum
+{
+	OHOS_CLIPBOARD_REQUEST_NONE = 0,
+	OHOS_CLIPBOARD_REQUEST_TEXT,
+	OHOS_CLIPBOARD_REQUEST_HTML,
+	OHOS_CLIPBOARD_REQUEST_URIW,
+	OHOS_CLIPBOARD_REQUEST_URI_LIST,
+	OHOS_CLIPBOARD_REQUEST_DIB,
+	OHOS_CLIPBOARD_REQUEST_DIBV5,
+	OHOS_CLIPBOARD_REQUEST_IMAGE_BMP
+} OHOS_CLIPBOARD_REQUEST_KIND;
 
 struct freerdp_ohos_clipboard
 {
@@ -42,6 +67,7 @@ struct freerdp_ohos_clipboard
 	BOOL lockInitialized;
 	pthread_mutex_t lock;
 	UINT32 requestedFormatId;
+	OHOS_CLIPBOARD_REQUEST_KIND requestedFormatKind;
 	UINT32 ignoreLocalChanges;
 	UINT64 ignoreLocalChangesUntil;
 
@@ -64,6 +90,9 @@ struct freerdp_ohos_clipboard
 	UINT32 lastRemoteFormatCount;
 	UINT32 lastLocalFormatCount;
 	UINT32 lastTextBytes;
+	UINT32 lastHtmlBytes;
+	UINT32 lastUriBytes;
+	UINT32 lastImageBytes;
 	char diagnostics[1024];
 
 	struct freerdp_ohos_clipboard* registryNext;
@@ -173,6 +202,47 @@ static char* ohos_clipboard_strdup(const char* value)
 		return NULL;
 	memcpy(copy, value, length);
 	return copy;
+}
+
+static BOOL ohos_clipboard_equals_ignore_case(const char* left, const char* right)
+{
+	if (!left || !right)
+		return FALSE;
+	while (*left && *right)
+	{
+		if (tolower((unsigned char)*left) != tolower((unsigned char)*right))
+			return FALSE;
+		left++;
+		right++;
+	}
+	return (*left == '\0') && (*right == '\0');
+}
+
+static BOOL ohos_clipboard_starts_with_ignore_case(const char* value, const char* prefix)
+{
+	if (!value || !prefix)
+		return FALSE;
+	while (*prefix)
+	{
+		if (*value == '\0')
+			return FALSE;
+		if (tolower((unsigned char)*value) != tolower((unsigned char)*prefix))
+			return FALSE;
+		value++;
+		prefix++;
+	}
+	return TRUE;
+}
+
+static BOOL ohos_clipboard_is_uri_text(const char* value)
+{
+	if (!value || value[0] == '\0')
+		return FALSE;
+	return ohos_clipboard_starts_with_ignore_case(value, "http://") ||
+	       ohos_clipboard_starts_with_ignore_case(value, "https://") ||
+	       ohos_clipboard_starts_with_ignore_case(value, "file://") ||
+	       ohos_clipboard_starts_with_ignore_case(value, "content://") ||
+	       ohos_clipboard_starts_with_ignore_case(value, "datashare://");
 }
 
 static UINT64 ohos_clipboard_now_ms(void)
@@ -363,6 +433,726 @@ static char* ohos_clipboard_utf16le_to_utf8(const BYTE* data, UINT32 size)
 	return text;
 }
 
+static char* ohos_clipboard_bytes_to_string(const BYTE* data, UINT32 size)
+{
+	if (!data)
+		return NULL;
+
+	size_t length = size;
+	while (length > 0 && data[length - 1U] == '\0')
+		length--;
+
+	char* text = (char*)calloc(length + 1U, sizeof(char));
+	if (!text)
+		return NULL;
+	if (length > 0)
+		memcpy(text, data, length);
+	return text;
+}
+
+static const char* ohos_clipboard_find_token(const char* text, const char* token)
+{
+	if (!text || !token || token[0] == '\0')
+		return NULL;
+
+	const size_t tokenLen = strlen(token);
+	for (const char* cursor = text; *cursor; cursor++)
+	{
+		if (strncmp(cursor, token, tokenLen) == 0)
+			return cursor;
+	}
+	return NULL;
+}
+
+static UINT32 ohos_clipboard_parse_html_offset(const char* text, const char* key)
+{
+	const char* cursor = ohos_clipboard_find_token(text, key);
+	if (!cursor)
+		return UINT32_MAX;
+
+	cursor += strlen(key);
+	while (*cursor == ' ' || *cursor == '\t')
+		cursor++;
+
+	UINT32 value = 0;
+	BOOL found = FALSE;
+	while (*cursor >= '0' && *cursor <= '9')
+	{
+		found = TRUE;
+		value = (value * 10U) + (UINT32)(*cursor - '0');
+		cursor++;
+	}
+	return found ? value : UINT32_MAX;
+}
+
+static char* ohos_clipboard_extract_ms_html(const BYTE* data, UINT32 size)
+{
+	char* source = ohos_clipboard_bytes_to_string(data, size);
+	if (!source)
+		return NULL;
+
+	UINT32 start = ohos_clipboard_parse_html_offset(source, "StartFragment:");
+	UINT32 end = ohos_clipboard_parse_html_offset(source, "EndFragment:");
+	if (start == UINT32_MAX || end == UINT32_MAX || start >= end || end > size)
+	{
+		start = ohos_clipboard_parse_html_offset(source, "StartHTML:");
+		end = ohos_clipboard_parse_html_offset(source, "EndHTML:");
+	}
+
+	if (start != UINT32_MAX && end != UINT32_MAX && start < end && end <= size)
+	{
+		const UINT32 length = end - start;
+		char* html = (char*)calloc((size_t)length + 1U, sizeof(char));
+		if (html)
+			memcpy(html, source + start, length);
+		free(source);
+		return html;
+	}
+
+	return source;
+}
+
+static BYTE* ohos_clipboard_html_to_ms_html(const char* html, UINT32* outSize)
+{
+	static const char prefix[] =
+	    "Version:0.9\r\n"
+	    "StartHTML:%010u\r\n"
+	    "EndHTML:%010u\r\n"
+	    "StartFragment:%010u\r\n"
+	    "EndFragment:%010u\r\n";
+	static const char startFragment[] = "<html><body>\r\n<!--StartFragment-->";
+	static const char endFragment[] = "<!--EndFragment-->\r\n</body></html>";
+
+	if (!outSize)
+		return NULL;
+	*outSize = 0;
+
+	const char* body = html ? html : "";
+	const int headerLen = snprintf(NULL, 0, prefix, 0U, 0U, 0U, 0U);
+	if (headerLen <= 0)
+		return NULL;
+
+	const UINT32 startHtml = (UINT32)headerLen;
+	const UINT32 startFragmentOffset = startHtml + (UINT32)strlen(startFragment);
+	const UINT32 endFragmentOffset = startFragmentOffset + (UINT32)strlen(body);
+	const UINT32 endHtml = endFragmentOffset + (UINT32)strlen(endFragment);
+	const size_t total = (size_t)endHtml + 1U;
+
+	BYTE* output = (BYTE*)calloc(total, sizeof(BYTE));
+	if (!output)
+		return NULL;
+
+	const int written = snprintf((char*)output, total, prefix, startHtml, endHtml,
+	                             startFragmentOffset, endFragmentOffset);
+	if (written != headerLen)
+	{
+		free(output);
+		return NULL;
+	}
+	memcpy(output + startHtml, startFragment, strlen(startFragment));
+	memcpy(output + startFragmentOffset, body, strlen(body));
+	memcpy(output + endFragmentOffset, endFragment, strlen(endFragment));
+	*outSize = (UINT32)total;
+	return output;
+}
+
+static char* ohos_clipboard_extract_uri_list_first(const BYTE* data, UINT32 size)
+{
+	char* source = ohos_clipboard_bytes_to_string(data, size);
+	if (!source)
+		return NULL;
+
+	char* cursor = source;
+	while (*cursor)
+	{
+		while (*cursor == '\r' || *cursor == '\n')
+			cursor++;
+		char* line = cursor;
+		while (*cursor && *cursor != '\r' && *cursor != '\n')
+			cursor++;
+		const char saved = *cursor;
+		*cursor = '\0';
+		if (line[0] != '#' && line[0] != '\0')
+		{
+			char* uri = ohos_clipboard_strdup(line);
+			free(source);
+			return uri;
+		}
+		if (saved == '\0')
+			break;
+		cursor++;
+	}
+
+	free(source);
+	return NULL;
+}
+
+static BYTE* ohos_clipboard_uri_to_uri_list(const char* uri, UINT32* outSize)
+{
+	if (!uri || !outSize)
+		return NULL;
+	*outSize = 0;
+
+	const size_t uriLen = strlen(uri);
+	const size_t total = uriLen + 3U;
+	BYTE* output = (BYTE*)calloc(total, sizeof(BYTE));
+	if (!output)
+		return NULL;
+	memcpy(output, uri, uriLen);
+	output[uriLen] = '\r';
+	output[uriLen + 1U] = '\n';
+	*outSize = (UINT32)total;
+	return output;
+}
+
+static UINT16 ohos_clipboard_read_le16(const BYTE* data)
+{
+	return (UINT16)data[0] | ((UINT16)data[1] << 8U);
+}
+
+static UINT32 ohos_clipboard_read_le32(const BYTE* data)
+{
+	return (UINT32)data[0] | ((UINT32)data[1] << 8U) | ((UINT32)data[2] << 16U) |
+	       ((UINT32)data[3] << 24U);
+}
+
+static BYTE* ohos_clipboard_dib_to_bmp(const BYTE* data, UINT32 size, UINT32* outSize,
+                                       char* errorBuffer, size_t errorBufferSize)
+{
+	if (!data || !outSize)
+		return NULL;
+	*outSize = 0;
+
+	if (size < sizeof(WINPR_BITMAP_INFO_HEADER))
+	{
+		ohos_clipboard_set_error(NULL, errorBuffer, errorBufferSize, "DIB data is too small");
+		return NULL;
+	}
+
+	const UINT32 headerSize = ohos_clipboard_read_le32(data);
+	if (headerSize < sizeof(WINPR_BITMAP_INFO_HEADER) || headerSize > size)
+	{
+		ohos_clipboard_set_error(NULL, errorBuffer, errorBufferSize,
+		                         "unsupported DIB header size=%" PRIu32, headerSize);
+		return NULL;
+	}
+
+	const UINT16 bitsPerPixel = ohos_clipboard_read_le16(data + 14U);
+	const UINT32 compression = ohos_clipboard_read_le32(data + 16U);
+	if ((bitsPerPixel != 24U && bitsPerPixel != 32U) ||
+	    (compression != BI_RGB && compression != BI_BITFIELDS))
+	{
+		ohos_clipboard_set_error(NULL, errorBuffer, errorBufferSize,
+		                         "unsupported DIB bpp=%" PRIu16 " compression=%" PRIu32,
+		                         bitsPerPixel, compression);
+		return NULL;
+	}
+
+	if (compression == BI_BITFIELDS && headerSize == sizeof(WINPR_BITMAP_INFO_HEADER))
+	{
+		ohos_clipboard_set_error(NULL, errorBuffer, errorBufferSize,
+		                         "unsupported DIB bitfield masks outside the info header");
+		return NULL;
+	}
+
+	const size_t total = sizeof(WINPR_BITMAP_FILE_HEADER) + (size_t)size;
+	if (total > UINT32_MAX)
+	{
+		ohos_clipboard_set_error(NULL, errorBuffer, errorBufferSize, "DIB data is too large");
+		return NULL;
+	}
+
+	BYTE* bmp = (BYTE*)calloc(total, sizeof(BYTE));
+	if (!bmp)
+		return NULL;
+
+	WINPR_BITMAP_FILE_HEADER header = { 0 };
+	header.bfType[0] = 'B';
+	header.bfType[1] = 'M';
+	header.bfSize = (UINT32)total;
+	header.bfOffBits = (UINT32)(sizeof(WINPR_BITMAP_FILE_HEADER) + headerSize);
+	memcpy(bmp, &header, sizeof(header));
+	memcpy(bmp + sizeof(WINPR_BITMAP_FILE_HEADER), data, size);
+	*outSize = (UINT32)total;
+	return bmp;
+}
+
+static BYTE* ohos_clipboard_bgra_to_dib(const BYTE* bgra, UINT32 width, UINT32 height,
+                                        UINT32* outSize, char* errorBuffer,
+                                        size_t errorBufferSize)
+{
+	if (!bgra || !outSize)
+		return NULL;
+	*outSize = 0;
+
+	if (width == 0U || height == 0U || width > (UINT32)INT32_MAX ||
+	    height > (UINT32)INT32_MAX)
+	{
+		ohos_clipboard_set_error(NULL, errorBuffer, errorBufferSize,
+		                         "invalid DIB size=%" PRIu32 "x%" PRIu32, width, height);
+		return NULL;
+	}
+
+	const size_t rowBytes = (size_t)width * 4U;
+	const size_t imageBytes = rowBytes * (size_t)height;
+	if (rowBytes / 4U != width || imageBytes / rowBytes != height ||
+	    imageBytes > UINT32_MAX || imageBytes > SIZE_MAX - sizeof(WINPR_BITMAP_INFO_HEADER))
+	{
+		ohos_clipboard_set_error(NULL, errorBuffer, errorBufferSize, "DIB data is too large");
+		return NULL;
+	}
+
+	const size_t total = sizeof(WINPR_BITMAP_INFO_HEADER) + imageBytes;
+	BYTE* dib = (BYTE*)calloc(total, sizeof(BYTE));
+	if (!dib)
+		return NULL;
+
+	WINPR_BITMAP_INFO_HEADER header = { 0 };
+	header.biSize = sizeof(WINPR_BITMAP_INFO_HEADER);
+	header.biWidth = (INT32)width;
+	header.biHeight = (INT32)height;
+	header.biPlanes = 1;
+	header.biBitCount = 32;
+	header.biCompression = BI_RGB;
+	header.biSizeImage = (UINT32)imageBytes;
+	memcpy(dib, &header, sizeof(header));
+
+	BYTE* pixels = dib + sizeof(WINPR_BITMAP_INFO_HEADER);
+	for (UINT32 y = 0; y < height; y++)
+	{
+		const BYTE* src = bgra + ((size_t)(height - 1U - y) * rowBytes);
+		BYTE* dst = pixels + ((size_t)y * rowBytes);
+		memcpy(dst, src, rowBytes);
+	}
+
+	*outSize = (UINT32)total;
+	return dib;
+}
+
+static BOOL ohos_clipboard_bitmap_to_bgra(const BYTE* data, UINT32 size,
+                                          OHOS_CLIPBOARD_REQUEST_KIND kind, BYTE** outBgra,
+                                          UINT32* outWidth, UINT32* outHeight,
+                                          char* errorBuffer, size_t errorBufferSize)
+{
+	wImage image = { 0 };
+	BYTE* bmp = NULL;
+	UINT32 bmpSize = 0;
+	BYTE* bgra = NULL;
+
+	if (!outBgra || !outWidth || !outHeight)
+		return FALSE;
+	*outBgra = NULL;
+	*outWidth = 0;
+	*outHeight = 0;
+
+	if (kind == OHOS_CLIPBOARD_REQUEST_IMAGE_BMP)
+	{
+		bmp = (BYTE*)malloc(size);
+		if (!bmp)
+			return FALSE;
+		memcpy(bmp, data, size);
+		bmpSize = size;
+	}
+	else
+	{
+		bmp = ohos_clipboard_dib_to_bmp(data, size, &bmpSize, errorBuffer, errorBufferSize);
+		if (!bmp)
+			return FALSE;
+	}
+
+	if (winpr_image_read_buffer(&image, bmp, bmpSize) < 0)
+	{
+		ohos_clipboard_set_error(NULL, errorBuffer, errorBufferSize,
+		                         "failed to decode bitmap clipboard data");
+		free(bmp);
+		return FALSE;
+	}
+	free(bmp);
+
+	if ((image.bitsPerPixel != 24U && image.bitsPerPixel != 32U) || image.width == 0U ||
+	    image.height == 0U)
+	{
+		ohos_clipboard_set_error(NULL, errorBuffer, errorBufferSize,
+		                         "unsupported bitmap output bpp=%" PRIu32 " size=%" PRIu32
+		                         "x%" PRIu32,
+		                         image.bitsPerPixel, image.width, image.height);
+		free(image.data);
+		return FALSE;
+	}
+
+	const size_t pixelCount = (size_t)image.width * (size_t)image.height;
+	const size_t bgraSize = pixelCount * 4U;
+	if (image.width > UINT32_MAX / 4U || (pixelCount != 0U && bgraSize / 4U != pixelCount) ||
+	    bgraSize > UINT32_MAX)
+	{
+		ohos_clipboard_set_error(NULL, errorBuffer, errorBufferSize, "bitmap output is too large");
+		free(image.data);
+		return FALSE;
+	}
+
+	bgra = (BYTE*)malloc(bgraSize);
+	if (!bgra)
+	{
+		free(image.data);
+		return FALSE;
+	}
+
+	const UINT32 srcBytesPerPixel = image.bitsPerPixel / 8U;
+	BOOL hasAlpha = FALSE;
+	for (UINT32 y = 0; y < image.height; y++)
+	{
+		const BYTE* src = image.data + ((size_t)y * image.scanline);
+		BYTE* dst = bgra + ((size_t)y * image.width * 4U);
+		for (UINT32 x = 0; x < image.width; x++)
+		{
+			dst[0] = src[0];
+			dst[1] = src[1];
+			dst[2] = src[2];
+			if (srcBytesPerPixel == 4U)
+			{
+				dst[3] = src[3];
+				hasAlpha = hasAlpha || (src[3] != 0U);
+			}
+			else
+			{
+				dst[3] = 0xFFU;
+			}
+			src += srcBytesPerPixel;
+			dst += 4U;
+		}
+	}
+
+	if (srcBytesPerPixel == 4U && !hasAlpha)
+	{
+		for (size_t index = 3U; index < bgraSize; index += 4U)
+			bgra[index] = 0xFFU;
+	}
+
+	free(image.data);
+	*outBgra = bgra;
+	*outWidth = image.width;
+	*outHeight = image.height;
+	return TRUE;
+}
+
+static OH_PixelmapNative* ohos_clipboard_get_pixelmap_native(OH_UdsPixelMap* pixelMap)
+{
+	OH_PixelmapNative* pixelmapNative = NULL;
+	if (!pixelMap)
+		return NULL;
+
+	/* The NDK declares OH_UdsPixelMap_GetPixelMap with OH_PixelmapNative*, but
+	 * the parameter is documented and used by wrappers as an output pointer. */
+	OH_UdsPixelMap_GetPixelMap(pixelMap, (OH_PixelmapNative*)&pixelmapNative);
+	return pixelmapNative;
+}
+
+static UINT32 ohos_clipboard_pixel_format_bytes(int32_t pixelFormat)
+{
+	switch (pixelFormat)
+	{
+		case PIXEL_FORMAT_BGRA_8888:
+		case PIXEL_FORMAT_RGBA_8888:
+			return 4;
+		case PIXEL_FORMAT_RGB_888:
+			return 3;
+		case PIXEL_FORMAT_RGB_565:
+			return 2;
+		case PIXEL_FORMAT_ALPHA_8:
+			return 1;
+		default:
+			return 0;
+	}
+}
+
+static BOOL ohos_clipboard_pixelmap_native_to_bgra(OH_PixelmapNative* pixelmapNative,
+                                                  BYTE** outBgra, UINT32* outWidth,
+                                                  UINT32* outHeight, char* errorBuffer,
+                                                  size_t errorBufferSize)
+{
+	Image_ErrorCode imageRc = IMAGE_SUCCESS;
+	OH_Pixelmap_ImageInfo* info = NULL;
+	BYTE* pixels = NULL;
+	BYTE* bgra = NULL;
+	uint32_t width = 0;
+	uint32_t height = 0;
+	uint32_t rowStride = 0;
+	int32_t pixelFormat = PIXEL_FORMAT_UNKNOWN;
+
+	if (!outBgra || !outWidth || !outHeight)
+		return FALSE;
+	*outBgra = NULL;
+	*outWidth = 0;
+	*outHeight = 0;
+
+	if (!pixelmapNative)
+	{
+		ohos_clipboard_set_error(NULL, errorBuffer, errorBufferSize, "PixelMap native is null");
+		return FALSE;
+	}
+
+	imageRc = OH_PixelmapImageInfo_Create(&info);
+	if (imageRc == IMAGE_SUCCESS)
+		imageRc = OH_PixelmapNative_GetImageInfo(pixelmapNative, info);
+	if (imageRc == IMAGE_SUCCESS)
+		imageRc = OH_PixelmapImageInfo_GetWidth(info, &width);
+	if (imageRc == IMAGE_SUCCESS)
+		imageRc = OH_PixelmapImageInfo_GetHeight(info, &height);
+	if (imageRc == IMAGE_SUCCESS)
+		imageRc = OH_PixelmapImageInfo_GetRowStride(info, &rowStride);
+	if (imageRc == IMAGE_SUCCESS)
+		imageRc = OH_PixelmapImageInfo_GetPixelFormat(info, &pixelFormat);
+	if (info)
+		OH_PixelmapImageInfo_Release(info);
+	if (imageRc != IMAGE_SUCCESS)
+	{
+		ohos_clipboard_set_error(NULL, errorBuffer, errorBufferSize,
+		                         "PixelMap info read failed: %d", imageRc);
+		return FALSE;
+	}
+
+	const UINT32 bytesPerPixel = ohos_clipboard_pixel_format_bytes(pixelFormat);
+	if (width == 0U || height == 0U || bytesPerPixel == 0U)
+	{
+		ohos_clipboard_set_error(NULL, errorBuffer, errorBufferSize,
+		                         "unsupported PixelMap format=%" PRId32 " size=%" PRIu32
+		                         "x%" PRIu32,
+		                         pixelFormat, width, height);
+		return FALSE;
+	}
+
+	const size_t minRowBytes = (size_t)width * bytesPerPixel;
+	if (minRowBytes > UINT32_MAX)
+	{
+		ohos_clipboard_set_error(NULL, errorBuffer, errorBufferSize, "PixelMap row is too large");
+		return FALSE;
+	}
+	if (rowStride < minRowBytes)
+		rowStride = (uint32_t)minRowBytes;
+	const size_t pixelBytes = (size_t)rowStride * height;
+	const size_t bgraBytes = (size_t)width * height * 4U;
+	if (minRowBytes / bytesPerPixel != width || pixelBytes / rowStride != height ||
+	    bgraBytes / 4U != ((size_t)width * height) || bgraBytes > UINT32_MAX)
+	{
+		ohos_clipboard_set_error(NULL, errorBuffer, errorBufferSize, "PixelMap data is too large");
+		return FALSE;
+	}
+
+	pixels = (BYTE*)malloc(pixelBytes);
+	bgra = (BYTE*)malloc(bgraBytes);
+	if (!pixels || !bgra)
+	{
+		free(pixels);
+		free(bgra);
+		return FALSE;
+	}
+
+	size_t bufferSize = pixelBytes;
+	imageRc = OH_PixelmapNative_ReadPixels(pixelmapNative, pixels, &bufferSize);
+	if (imageRc != IMAGE_SUCCESS)
+	{
+		ohos_clipboard_set_error(NULL, errorBuffer, errorBufferSize,
+		                         "PixelMap ReadPixels failed: %d", imageRc);
+		free(pixels);
+		free(bgra);
+		return FALSE;
+	}
+
+	size_t readStride = rowStride;
+	if (bufferSize < pixelBytes)
+	{
+		const size_t compactBytes = minRowBytes * (size_t)height;
+		if (bufferSize >= compactBytes)
+			readStride = minRowBytes;
+		else
+		{
+			ohos_clipboard_set_error(NULL, errorBuffer, errorBufferSize,
+			                         "PixelMap ReadPixels returned too few bytes: %zu", bufferSize);
+			free(pixels);
+			free(bgra);
+			return FALSE;
+		}
+	}
+
+	for (UINT32 y = 0; y < height; y++)
+	{
+		const BYTE* src = pixels + ((size_t)y * readStride);
+		BYTE* dst = bgra + ((size_t)y * width * 4U);
+		for (UINT32 x = 0; x < width; x++)
+		{
+			switch (pixelFormat)
+			{
+				case PIXEL_FORMAT_BGRA_8888:
+					dst[0] = src[0];
+					dst[1] = src[1];
+					dst[2] = src[2];
+					dst[3] = src[3];
+					src += 4;
+					break;
+				case PIXEL_FORMAT_RGBA_8888:
+					dst[0] = src[2];
+					dst[1] = src[1];
+					dst[2] = src[0];
+					dst[3] = src[3];
+					src += 4;
+					break;
+				case PIXEL_FORMAT_RGB_888:
+					dst[0] = src[2];
+					dst[1] = src[1];
+					dst[2] = src[0];
+					dst[3] = 0xFFU;
+					src += 3;
+					break;
+				case PIXEL_FORMAT_RGB_565:
+				{
+					const UINT16 value = ohos_clipboard_read_le16(src);
+					dst[2] = (BYTE)(((value >> 11U) & 0x1FU) * 255U / 31U);
+					dst[1] = (BYTE)(((value >> 5U) & 0x3FU) * 255U / 63U);
+					dst[0] = (BYTE)((value & 0x1FU) * 255U / 31U);
+					dst[3] = 0xFFU;
+					src += 2;
+					break;
+				}
+				case PIXEL_FORMAT_ALPHA_8:
+					dst[0] = 0;
+					dst[1] = 0;
+					dst[2] = 0;
+					dst[3] = src[0];
+					src += 1;
+					break;
+				default:
+					break;
+			}
+			dst += 4;
+		}
+	}
+
+	free(pixels);
+	*outBgra = bgra;
+	*outWidth = width;
+	*outHeight = height;
+	return TRUE;
+}
+
+static BOOL ohos_clipboard_has_pixelmap(freerdpOhosClipboard* clipboard, char* errorBuffer,
+                                        size_t errorBufferSize)
+{
+	int status = ERR_OK;
+	OH_UdmfData* data = NULL;
+	BOOL found = FALSE;
+
+	if (!clipboard || !clipboard->pasteboard)
+	{
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize, "pasteboard unavailable");
+		return FALSE;
+	}
+
+	data = OH_Pasteboard_GetData(clipboard->pasteboard, &status);
+	if (status != ERR_OK || !data)
+	{
+		clipboard->lastError = (UINT32)status;
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+		                         "OH_Pasteboard_GetData status=%d", status);
+		return FALSE;
+	}
+
+	const int recordCount = OH_UdmfData_GetRecordCount(data);
+	for (int index = 0; index < recordCount; index++)
+	{
+		OH_UdmfRecord* record = OH_UdmfData_GetRecord(data, (unsigned int)index);
+		if (!record)
+			continue;
+
+		OH_UdsPixelMap* pixelMap = OH_UdsPixelMap_Create();
+		if (!pixelMap)
+			continue;
+		const int rc = OH_UdmfRecord_GetPixelMap(record, pixelMap);
+		if (rc == UDMF_E_OK && ohos_clipboard_get_pixelmap_native(pixelMap))
+			found = TRUE;
+		OH_UdsPixelMap_Destroy(pixelMap);
+		if (found)
+			break;
+	}
+
+	OH_UdmfData_Destroy(data);
+	if (!found)
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+		                         "pasteboard has no pixelmap record");
+	return found;
+}
+
+static BOOL ohos_clipboard_read_pixelmap(freerdpOhosClipboard* clipboard, BYTE** outBgra,
+                                         UINT32* outWidth, UINT32* outHeight,
+                                         char* errorBuffer, size_t errorBufferSize)
+{
+	int status = ERR_OK;
+	OH_UdmfData* data = NULL;
+	BYTE* bgra = NULL;
+	UINT32 width = 0;
+	UINT32 height = 0;
+
+	if (!outBgra || !outWidth || !outHeight)
+		return FALSE;
+	*outBgra = NULL;
+	*outWidth = 0;
+	*outHeight = 0;
+
+	if (!clipboard || !clipboard->pasteboard)
+	{
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize, "pasteboard unavailable");
+		return FALSE;
+	}
+
+	data = OH_Pasteboard_GetData(clipboard->pasteboard, &status);
+	if (status != ERR_OK || !data)
+	{
+		clipboard->lastError = (UINT32)status;
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+		                         "OH_Pasteboard_GetData status=%d", status);
+		return FALSE;
+	}
+
+	const int recordCount = OH_UdmfData_GetRecordCount(data);
+	for (int index = 0; index < recordCount; index++)
+	{
+		OH_UdmfRecord* record = OH_UdmfData_GetRecord(data, (unsigned int)index);
+		if (!record)
+			continue;
+
+		OH_UdsPixelMap* pixelMap = OH_UdsPixelMap_Create();
+		if (!pixelMap)
+			continue;
+
+		const int rc = OH_UdmfRecord_GetPixelMap(record, pixelMap);
+		if (rc == UDMF_E_OK)
+		{
+			OH_PixelmapNative* pixelmapNative = ohos_clipboard_get_pixelmap_native(pixelMap);
+			if (ohos_clipboard_pixelmap_native_to_bgra(pixelmapNative, &bgra, &width, &height,
+			                                           errorBuffer, errorBufferSize))
+			{
+				OH_UdsPixelMap_Destroy(pixelMap);
+				goto success;
+			}
+		}
+		OH_UdsPixelMap_Destroy(pixelMap);
+	}
+
+	OH_UdmfData_Destroy(data);
+	if (errorBuffer && errorBuffer[0] == '\0')
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+		                         "pasteboard has no readable pixelmap record");
+	return FALSE;
+
+success:
+	OH_UdmfData_Destroy(data);
+	*outBgra = bgra;
+	*outWidth = width;
+	*outHeight = height;
+	++clipboard->pasteboardReadCount;
+	clipboard->lastImageBytes = (UINT32)((size_t)width * (size_t)height * 4U);
+	return TRUE;
+}
+
 static BOOL ohos_clipboard_read_plain_text(freerdpOhosClipboard* clipboard, char** outText,
                                            char* errorBuffer, size_t errorBufferSize)
 {
@@ -437,6 +1227,176 @@ success:
 	*outText = text;
 	++clipboard->pasteboardReadCount;
 	clipboard->lastTextBytes = (UINT32)strlen(text);
+	return TRUE;
+}
+
+static BOOL ohos_clipboard_read_html(freerdpOhosClipboard* clipboard, char** outHtml,
+                                     char** outPlain, char* errorBuffer,
+                                     size_t errorBufferSize)
+{
+	int status = ERR_OK;
+	OH_UdmfData* data = NULL;
+	char* htmlText = NULL;
+	char* plainText = NULL;
+
+	if (!outHtml)
+		return FALSE;
+	*outHtml = NULL;
+	if (outPlain)
+		*outPlain = NULL;
+
+	if (!clipboard || !clipboard->pasteboard)
+	{
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize, "pasteboard unavailable");
+		return FALSE;
+	}
+
+	data = OH_Pasteboard_GetData(clipboard->pasteboard, &status);
+	if (status != ERR_OK || !data)
+	{
+		clipboard->lastError = (UINT32)status;
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+		                         "OH_Pasteboard_GetData status=%d", status);
+		return FALSE;
+	}
+
+	OH_UdsHtml* primaryHtml = OH_UdsHtml_Create();
+	if (primaryHtml)
+	{
+		const int rc = OH_UdmfData_GetPrimaryHtml(data, primaryHtml);
+		if (rc == UDMF_E_OK)
+		{
+			htmlText = ohos_clipboard_strdup(OH_UdsHtml_GetContent(primaryHtml));
+			plainText = ohos_clipboard_strdup(OH_UdsHtml_GetPlainContent(primaryHtml));
+		}
+		OH_UdsHtml_Destroy(primaryHtml);
+		if (htmlText && htmlText[0] != '\0')
+			goto success;
+		free(htmlText);
+		free(plainText);
+		htmlText = NULL;
+		plainText = NULL;
+	}
+
+	const int recordCount = OH_UdmfData_GetRecordCount(data);
+	for (int index = 0; index < recordCount; index++)
+	{
+		OH_UdmfRecord* record = OH_UdmfData_GetRecord(data, (unsigned int)index);
+		if (!record)
+			continue;
+		OH_UdsHtml* html = OH_UdsHtml_Create();
+		if (!html)
+			continue;
+		const int rc = OH_UdmfRecord_GetHtml(record, html);
+		if (rc == UDMF_E_OK)
+		{
+			htmlText = ohos_clipboard_strdup(OH_UdsHtml_GetContent(html));
+			plainText = ohos_clipboard_strdup(OH_UdsHtml_GetPlainContent(html));
+		}
+		OH_UdsHtml_Destroy(html);
+		if (htmlText && htmlText[0] != '\0')
+			goto success;
+		free(htmlText);
+		free(plainText);
+		htmlText = NULL;
+		plainText = NULL;
+	}
+
+	OH_UdmfData_Destroy(data);
+	ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize, "pasteboard has no html record");
+	return FALSE;
+
+success:
+	OH_UdmfData_Destroy(data);
+	*outHtml = htmlText;
+	if (outPlain)
+		*outPlain = plainText;
+	else
+		free(plainText);
+	++clipboard->pasteboardReadCount;
+	clipboard->lastHtmlBytes = (UINT32)strlen(htmlText);
+	return TRUE;
+}
+
+static BOOL ohos_clipboard_read_uri(freerdpOhosClipboard* clipboard, char** outUri,
+                                    char* errorBuffer, size_t errorBufferSize)
+{
+	int status = ERR_OK;
+	OH_UdmfData* data = NULL;
+	char* uri = NULL;
+
+	if (!outUri)
+		return FALSE;
+	*outUri = NULL;
+
+	if (!clipboard || !clipboard->pasteboard)
+	{
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize, "pasteboard unavailable");
+		return FALSE;
+	}
+
+	data = OH_Pasteboard_GetData(clipboard->pasteboard, &status);
+	if (status != ERR_OK || !data)
+	{
+		clipboard->lastError = (UINT32)status;
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+		                         "OH_Pasteboard_GetData status=%d", status);
+		return FALSE;
+	}
+
+	const int recordCount = OH_UdmfData_GetRecordCount(data);
+	for (int index = 0; index < recordCount; index++)
+	{
+		OH_UdmfRecord* record = OH_UdmfData_GetRecord(data, (unsigned int)index);
+		if (!record)
+			continue;
+
+		OH_UdsHyperlink* hyperlink = OH_UdsHyperlink_Create();
+		if (hyperlink)
+		{
+			const int rc = OH_UdmfRecord_GetHyperlink(record, hyperlink);
+			if (rc == UDMF_E_OK)
+				uri = ohos_clipboard_strdup(OH_UdsHyperlink_GetUrl(hyperlink));
+			OH_UdsHyperlink_Destroy(hyperlink);
+			if (uri && uri[0] != '\0')
+				goto success;
+			free(uri);
+			uri = NULL;
+		}
+
+		OH_UdsFileUri* fileUri = OH_UdsFileUri_Create();
+		if (fileUri)
+		{
+			const int rc = OH_UdmfRecord_GetFileUri(record, fileUri);
+			if (rc == UDMF_E_OK)
+				uri = ohos_clipboard_strdup(OH_UdsFileUri_GetFileUri(fileUri));
+			OH_UdsFileUri_Destroy(fileUri);
+			if (uri && uri[0] != '\0')
+				goto success;
+			free(uri);
+			uri = NULL;
+		}
+	}
+
+	char textError[128] = { 0 };
+	char* text = NULL;
+	if (ohos_clipboard_read_plain_text(clipboard, &text, textError, sizeof(textError)) &&
+	    ohos_clipboard_is_uri_text(text))
+	{
+		uri = text;
+		goto success;
+	}
+	free(text);
+
+	OH_UdmfData_Destroy(data);
+	ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize, "pasteboard has no uri record");
+	return FALSE;
+
+success:
+	OH_UdmfData_Destroy(data);
+	*outUri = uri;
+	++clipboard->pasteboardReadCount;
+	clipboard->lastUriBytes = (UINT32)strlen(uri);
 	return TRUE;
 }
 
@@ -516,6 +1476,340 @@ fail:
 	return FALSE;
 }
 
+static BOOL ohos_clipboard_write_html(freerdpOhosClipboard* clipboard, const char* html,
+                                      const char* plain, char* errorBuffer,
+                                      size_t errorBufferSize)
+{
+	int rc = UDMF_E_OK;
+	OH_UdsHtml* htmlData = NULL;
+	OH_UdsPlainText* plainText = NULL;
+	OH_UdmfRecord* record = NULL;
+	OH_UdmfData* data = NULL;
+
+	if (!clipboard || !clipboard->pasteboard)
+	{
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize, "pasteboard unavailable");
+		return FALSE;
+	}
+
+	htmlData = OH_UdsHtml_Create();
+	plainText = OH_UdsPlainText_Create();
+	record = OH_UdmfRecord_Create();
+	data = OH_UdmfData_Create();
+	if (!htmlData || !plainText || !record || !data)
+	{
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize, "UDMF allocation failed");
+		goto fail;
+	}
+
+	const char* htmlValue = html ? html : "";
+	const char* plainValue = (plain && plain[0] != '\0') ? plain : htmlValue;
+	rc = OH_UdsHtml_SetContent(htmlData, htmlValue);
+	if (rc == UDMF_E_OK)
+		rc = OH_UdsHtml_SetPlainContent(htmlData, plainValue);
+	if (rc == UDMF_E_OK)
+		rc = OH_UdmfRecord_AddHtml(record, htmlData);
+	if (rc == UDMF_E_OK)
+		rc = OH_UdsPlainText_SetContent(plainText, plainValue);
+	if (rc == UDMF_E_OK)
+		rc = OH_UdmfRecord_AddPlainText(record, plainText);
+	if (rc == UDMF_E_OK)
+		rc = OH_UdmfData_AddRecord(data, record);
+	if (rc != UDMF_E_OK)
+	{
+		clipboard->lastError = (UINT32)rc;
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+		                         "UDMF html setup failed: %d", rc);
+		goto fail;
+	}
+
+	pthread_mutex_lock(&clipboard->lock);
+	clipboard->ignoreLocalChanges++;
+	clipboard->ignoreLocalChangesUntil = ohos_clipboard_now_ms() + OHOS_CLIPBOARD_ECHO_SUPPRESS_MS;
+	pthread_mutex_unlock(&clipboard->lock);
+
+	rc = OH_Pasteboard_SetData(clipboard->pasteboard, data);
+	if (rc != ERR_OK)
+	{
+		pthread_mutex_lock(&clipboard->lock);
+		if (clipboard->ignoreLocalChanges > 0)
+			clipboard->ignoreLocalChanges--;
+		if (clipboard->ignoreLocalChanges == 0)
+			clipboard->ignoreLocalChangesUntil = 0;
+		pthread_mutex_unlock(&clipboard->lock);
+		clipboard->lastError = (UINT32)rc;
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+		                         "OH_Pasteboard_SetData status=%d", rc);
+		goto fail;
+	}
+
+	++clipboard->pasteboardWriteCount;
+	clipboard->lastHtmlBytes = htmlValue ? (UINT32)strlen(htmlValue) : 0;
+	clipboard->lastTextBytes = plainValue ? (UINT32)strlen(plainValue) : 0;
+	if (htmlData)
+		OH_UdsHtml_Destroy(htmlData);
+	if (plainText)
+		OH_UdsPlainText_Destroy(plainText);
+	if (record)
+		OH_UdmfRecord_Destroy(record);
+	if (data)
+		OH_UdmfData_Destroy(data);
+	return TRUE;
+
+fail:
+	if (htmlData)
+		OH_UdsHtml_Destroy(htmlData);
+	if (plainText)
+		OH_UdsPlainText_Destroy(plainText);
+	if (record)
+		OH_UdmfRecord_Destroy(record);
+	if (data)
+		OH_UdmfData_Destroy(data);
+	return FALSE;
+}
+
+static BOOL ohos_clipboard_write_uri(freerdpOhosClipboard* clipboard, const char* uri,
+                                     char* errorBuffer, size_t errorBufferSize)
+{
+	int rc = UDMF_E_OK;
+	OH_UdsHyperlink* hyperlink = NULL;
+	OH_UdsFileUri* fileUri = NULL;
+	OH_UdsPlainText* plainText = NULL;
+	OH_UdmfRecord* record = NULL;
+	OH_UdmfData* data = NULL;
+
+	if (!clipboard || !clipboard->pasteboard)
+	{
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize, "pasteboard unavailable");
+		return FALSE;
+	}
+
+	const char* uriValue = uri ? uri : "";
+	record = OH_UdmfRecord_Create();
+	data = OH_UdmfData_Create();
+	plainText = OH_UdsPlainText_Create();
+	if (!record || !data || !plainText)
+	{
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize, "UDMF allocation failed");
+		goto fail;
+	}
+
+	if (ohos_clipboard_starts_with_ignore_case(uriValue, "http://") ||
+	    ohos_clipboard_starts_with_ignore_case(uriValue, "https://"))
+	{
+		hyperlink = OH_UdsHyperlink_Create();
+		if (!hyperlink)
+		{
+			ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+			                         "UDMF hyperlink allocation failed");
+			goto fail;
+		}
+		rc = OH_UdsHyperlink_SetUrl(hyperlink, uriValue);
+		if (rc == UDMF_E_OK)
+			rc = OH_UdsHyperlink_SetDescription(hyperlink, uriValue);
+		if (rc == UDMF_E_OK)
+			rc = OH_UdmfRecord_AddHyperlink(record, hyperlink);
+	}
+	else
+	{
+		fileUri = OH_UdsFileUri_Create();
+		if (!fileUri)
+		{
+			ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+			                         "UDMF file uri allocation failed");
+			goto fail;
+		}
+		rc = OH_UdsFileUri_SetFileUri(fileUri, uriValue);
+		if (rc == UDMF_E_OK)
+			rc = OH_UdmfRecord_AddFileUri(record, fileUri);
+	}
+
+	if (rc == UDMF_E_OK)
+		rc = OH_UdsPlainText_SetContent(plainText, uriValue);
+	if (rc == UDMF_E_OK)
+		rc = OH_UdmfRecord_AddPlainText(record, plainText);
+	if (rc == UDMF_E_OK)
+		rc = OH_UdmfData_AddRecord(data, record);
+	if (rc != UDMF_E_OK)
+	{
+		clipboard->lastError = (UINT32)rc;
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+		                         "UDMF uri setup failed: %d", rc);
+		goto fail;
+	}
+
+	pthread_mutex_lock(&clipboard->lock);
+	clipboard->ignoreLocalChanges++;
+	clipboard->ignoreLocalChangesUntil = ohos_clipboard_now_ms() + OHOS_CLIPBOARD_ECHO_SUPPRESS_MS;
+	pthread_mutex_unlock(&clipboard->lock);
+
+	rc = OH_Pasteboard_SetData(clipboard->pasteboard, data);
+	if (rc != ERR_OK)
+	{
+		pthread_mutex_lock(&clipboard->lock);
+		if (clipboard->ignoreLocalChanges > 0)
+			clipboard->ignoreLocalChanges--;
+		if (clipboard->ignoreLocalChanges == 0)
+			clipboard->ignoreLocalChangesUntil = 0;
+		pthread_mutex_unlock(&clipboard->lock);
+		clipboard->lastError = (UINT32)rc;
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+		                         "OH_Pasteboard_SetData status=%d", rc);
+		goto fail;
+	}
+
+	++clipboard->pasteboardWriteCount;
+	clipboard->lastUriBytes = (UINT32)strlen(uriValue);
+	clipboard->lastTextBytes = (UINT32)strlen(uriValue);
+	if (hyperlink)
+		OH_UdsHyperlink_Destroy(hyperlink);
+	if (fileUri)
+		OH_UdsFileUri_Destroy(fileUri);
+	if (plainText)
+		OH_UdsPlainText_Destroy(plainText);
+	if (record)
+		OH_UdmfRecord_Destroy(record);
+	if (data)
+		OH_UdmfData_Destroy(data);
+	return TRUE;
+
+fail:
+	if (hyperlink)
+		OH_UdsHyperlink_Destroy(hyperlink);
+	if (fileUri)
+		OH_UdsFileUri_Destroy(fileUri);
+	if (plainText)
+		OH_UdsPlainText_Destroy(plainText);
+	if (record)
+		OH_UdmfRecord_Destroy(record);
+	if (data)
+		OH_UdmfData_Destroy(data);
+	return FALSE;
+}
+
+static BOOL ohos_clipboard_write_pixelmap(freerdpOhosClipboard* clipboard, const BYTE* bgra,
+                                          UINT32 width, UINT32 height, UINT32 sourceBytes,
+                                          char* errorBuffer, size_t errorBufferSize)
+{
+	int rc = UDMF_E_OK;
+	Image_ErrorCode imageRc = IMAGE_SUCCESS;
+	OH_Pixelmap_InitializationOptions* options = NULL;
+	OH_PixelmapNative* pixelmapNative = NULL;
+	OH_UdsPixelMap* pixelMap = NULL;
+	OH_UdmfRecord* record = NULL;
+	OH_UdmfData* data = NULL;
+
+	if (!clipboard || !clipboard->pasteboard)
+	{
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize, "pasteboard unavailable");
+		return FALSE;
+	}
+	if (!bgra || width == 0U || height == 0U)
+	{
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+		                         "invalid pixelmap input");
+		return FALSE;
+	}
+
+	if ((size_t)width > SIZE_MAX / (size_t)height / 4U)
+	{
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+		                         "pixelmap input is too large");
+		return FALSE;
+	}
+	const size_t dataLength = (size_t)width * (size_t)height * 4U;
+
+	imageRc = OH_PixelmapInitializationOptions_Create(&options);
+	if (imageRc == IMAGE_SUCCESS)
+		imageRc = OH_PixelmapInitializationOptions_SetWidth(options, width);
+	if (imageRc == IMAGE_SUCCESS)
+		imageRc = OH_PixelmapInitializationOptions_SetHeight(options, height);
+	if (imageRc == IMAGE_SUCCESS)
+		imageRc = OH_PixelmapInitializationOptions_SetPixelFormat(options, PIXEL_FORMAT_BGRA_8888);
+	if (imageRc == IMAGE_SUCCESS)
+		imageRc = OH_PixelmapInitializationOptions_SetAlphaType(
+		    options, PIXELMAP_ALPHA_TYPE_UNPREMULTIPLIED);
+	if (imageRc == IMAGE_SUCCESS)
+		imageRc = OH_PixelmapNative_CreatePixelmap((uint8_t*)bgra, dataLength, options,
+		                                           &pixelmapNative);
+	if (imageRc != IMAGE_SUCCESS || !pixelmapNative)
+	{
+		clipboard->lastError = (UINT32)imageRc;
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+		                         "PixelMap create failed: %d", imageRc);
+		goto fail;
+	}
+
+	pixelMap = OH_UdsPixelMap_Create();
+	record = OH_UdmfRecord_Create();
+	data = OH_UdmfData_Create();
+	if (!pixelMap || !record || !data)
+	{
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize, "UDMF allocation failed");
+		goto fail;
+	}
+
+	rc = OH_UdsPixelMap_SetPixelMap(pixelMap, pixelmapNative);
+	if (rc == UDMF_E_OK)
+		rc = OH_UdmfRecord_AddPixelMap(record, pixelMap);
+	if (rc == UDMF_E_OK)
+		rc = OH_UdmfData_AddRecord(data, record);
+	if (rc != UDMF_E_OK)
+	{
+		clipboard->lastError = (UINT32)rc;
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+		                         "UDMF pixelmap setup failed: %d", rc);
+		goto fail;
+	}
+
+	pthread_mutex_lock(&clipboard->lock);
+	clipboard->ignoreLocalChanges++;
+	clipboard->ignoreLocalChangesUntil = ohos_clipboard_now_ms() + OHOS_CLIPBOARD_ECHO_SUPPRESS_MS;
+	pthread_mutex_unlock(&clipboard->lock);
+
+	rc = OH_Pasteboard_SetData(clipboard->pasteboard, data);
+	if (rc != ERR_OK)
+	{
+		pthread_mutex_lock(&clipboard->lock);
+		if (clipboard->ignoreLocalChanges > 0)
+			clipboard->ignoreLocalChanges--;
+		if (clipboard->ignoreLocalChanges == 0)
+			clipboard->ignoreLocalChangesUntil = 0;
+		pthread_mutex_unlock(&clipboard->lock);
+		clipboard->lastError = (UINT32)rc;
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+		                         "OH_Pasteboard_SetData status=%d", rc);
+		goto fail;
+	}
+
+	++clipboard->pasteboardWriteCount;
+	clipboard->lastImageBytes = sourceBytes;
+	if (pixelMap)
+		OH_UdsPixelMap_Destroy(pixelMap);
+	if (record)
+		OH_UdmfRecord_Destroy(record);
+	if (data)
+		OH_UdmfData_Destroy(data);
+	if (pixelmapNative)
+		OH_PixelmapNative_Release(pixelmapNative);
+	if (options)
+		OH_PixelmapInitializationOptions_Release(options);
+	return TRUE;
+
+fail:
+	if (pixelMap)
+		OH_UdsPixelMap_Destroy(pixelMap);
+	if (record)
+		OH_UdmfRecord_Destroy(record);
+	if (data)
+		OH_UdmfData_Destroy(data);
+	if (pixelmapNative)
+		OH_PixelmapNative_Release(pixelmapNative);
+	if (options)
+		OH_PixelmapInitializationOptions_Release(options);
+	return FALSE;
+}
+
 static UINT ohos_clipboard_send_client_capabilities(CliprdrClientContext* cliprdr)
 {
 	CLIPRDR_CAPABILITIES capabilities = { 0 };
@@ -550,41 +1844,73 @@ static UINT ohos_clipboard_send_local_format_list(freerdpOhosClipboard* clipboar
 {
 	char error[160] = { 0 };
 	char* text = NULL;
-	CLIPRDR_FORMAT format = { 0 };
+	char* html = NULL;
+	char* htmlPlain = NULL;
+	char* uri = NULL;
+	CLIPRDR_FORMAT formats[5] = { 0 };
 	CLIPRDR_FORMAT_LIST formatList = { 0 };
 	const BOOL hasText = ohos_clipboard_read_plain_text(clipboard, &text, error, sizeof(error));
+	const BOOL hasHtml = ohos_clipboard_read_html(clipboard, &html, &htmlPlain, NULL, 0);
+	const BOOL hasUri = ohos_clipboard_read_uri(clipboard, &uri, NULL, 0);
+	const BOOL hasImage = ohos_clipboard_has_pixelmap(clipboard, NULL, 0);
 	CliprdrClientContext* cliprdr = ohos_clipboard_snapshot_cliprdr(clipboard);
+	UINT32 count = 0;
 
 	if (!cliprdr || !cliprdr->ClientFormatList)
 	{
 		free(text);
+		free(html);
+		free(htmlPlain);
+		free(uri);
 		return CHANNEL_RC_OK;
 	}
 
-	if (!hasText && error[0] != '\0')
+	if (!hasText && !hasHtml && !hasUri && !hasImage && error[0] != '\0')
 		ohos_clipboard_log(clipboard, "HarmonyOS Pasteboard read warning: %s", error);
 
-	format.formatId = CF_UNICODETEXT;
+	if (hasText || hasHtml || hasUri)
+		formats[count++].formatId = CF_UNICODETEXT;
+	if (hasHtml)
+	{
+		formats[count].formatId = OHOS_CLIPBOARD_FORMAT_HTML;
+		formats[count++].formatName = (char*)OHOS_CLIPBOARD_HTML_FORMAT_NAME;
+	}
+	if (hasUri)
+	{
+		formats[count].formatId = OHOS_CLIPBOARD_FORMAT_URIW;
+		formats[count++].formatName = (char*)OHOS_CLIPBOARD_URIW_FORMAT_NAME;
+		formats[count].formatId = OHOS_CLIPBOARD_FORMAT_URI_LIST;
+		formats[count++].formatName = (char*)OHOS_CLIPBOARD_URI_LIST_FORMAT_NAME;
+	}
+	if (hasImage)
+		formats[count++].formatId = CF_DIB;
+
 	formatList.common.msgType = CB_FORMAT_LIST;
 	formatList.common.msgFlags = 0;
-	formatList.numFormats = hasText ? 1U : 0U;
-	formatList.formats = hasText ? &format : NULL;
+	formatList.numFormats = count;
+	formatList.formats = (count > 0) ? formats : NULL;
 
 	clipboard->lastLocalFormatCount = formatList.numFormats;
 	UINT rc = cliprdr->ClientFormatList(cliprdr, &formatList);
 	if (rc == CHANNEL_RC_OK)
 	{
 		++clipboard->localFormatListCount;
-		ohos_clipboard_log(clipboard, "cliprdr local format list sent: %s reason=%s",
-		                   hasText ? "CF_UNICODETEXT" : "empty",
+		ohos_clipboard_log(clipboard,
+		                   "cliprdr local format list sent: text=%d html=%d uri=%d image=%d "
+		                   "count=%" PRIu32 " reason=%s",
+		                   hasText || hasHtml || hasUri, hasHtml, hasUri, hasImage, count,
 		                   reason ? reason : "unknown");
 	}
 	free(text);
+	free(html);
+	free(htmlPlain);
+	free(uri);
 	return rc;
 }
 
 static UINT ohos_clipboard_send_format_data_request(freerdpOhosClipboard* clipboard,
-                                                    UINT32 formatId)
+                                                    UINT32 formatId,
+                                                    OHOS_CLIPBOARD_REQUEST_KIND kind)
 {
 	CLIPRDR_FORMAT_DATA_REQUEST request = { 0 };
 	CliprdrClientContext* cliprdr = ohos_clipboard_snapshot_cliprdr(clipboard);
@@ -597,11 +1923,13 @@ static UINT ohos_clipboard_send_format_data_request(freerdpOhosClipboard* clipbo
 
 	pthread_mutex_lock(&clipboard->lock);
 	clipboard->requestedFormatId = formatId;
+	clipboard->requestedFormatKind = kind;
 	clipboard->lastRequestedFormat = formatId;
 	pthread_mutex_unlock(&clipboard->lock);
 
-	ohos_clipboard_log(clipboard, "cliprdr remote text request sent: format=%" PRIu32,
-	                   formatId);
+	ohos_clipboard_log(clipboard, "cliprdr remote data request sent: format=%" PRIu32
+	                              " kind=%d",
+	                   formatId, kind);
 	return cliprdr->ClientFormatDataRequest(cliprdr, &request);
 }
 
@@ -644,6 +1972,7 @@ static UINT ohos_clipboard_server_format_list(CliprdrClientContext* cliprdr,
                                               const CLIPRDR_FORMAT_LIST* formatList)
 {
 	UINT32 requested = 0;
+	OHOS_CLIPBOARD_REQUEST_KIND requestedKind = OHOS_CLIPBOARD_REQUEST_NONE;
 	freerdpOhosClipboard* clipboard = ohos_clipboard_from_cliprdr(cliprdr);
 
 	if (!clipboard || !formatList)
@@ -652,12 +1981,68 @@ static UINT ohos_clipboard_server_format_list(CliprdrClientContext* cliprdr,
 	for (UINT32 index = 0; index < formatList->numFormats; index++)
 	{
 		const UINT32 formatId = formatList->formats[index].formatId;
-		if (formatId == CF_UNICODETEXT)
+		const char* formatName = formatList->formats[index].formatName;
+		if (formatName &&
+		    (ohos_clipboard_equals_ignore_case(formatName, OHOS_CLIPBOARD_HTML_FORMAT_NAME) ||
+		     ohos_clipboard_equals_ignore_case(formatName, OHOS_CLIPBOARD_TEXT_HTML_FORMAT_NAME)))
+		{
+			requested = formatId;
+			requestedKind = OHOS_CLIPBOARD_REQUEST_HTML;
+			break;
+		}
+		if (formatName &&
+		    ohos_clipboard_equals_ignore_case(formatName, OHOS_CLIPBOARD_URIW_FORMAT_NAME))
+		{
+			requested = formatId;
+			requestedKind = OHOS_CLIPBOARD_REQUEST_URIW;
+			continue;
+		}
+		if (requestedKind == OHOS_CLIPBOARD_REQUEST_NONE && formatName &&
+		    (ohos_clipboard_equals_ignore_case(formatName, OHOS_CLIPBOARD_URI_FORMAT_NAME) ||
+		     ohos_clipboard_equals_ignore_case(formatName, OHOS_CLIPBOARD_URI_LIST_FORMAT_NAME)))
+		{
+			requested = formatId;
+			requestedKind = OHOS_CLIPBOARD_REQUEST_URI_LIST;
+			continue;
+		}
+		if (formatId == CF_DIB)
+		{
+			requested = formatId;
+			requestedKind = OHOS_CLIPBOARD_REQUEST_DIB;
+			continue;
+		}
+		if ((requestedKind == OHOS_CLIPBOARD_REQUEST_NONE ||
+		     requestedKind == OHOS_CLIPBOARD_REQUEST_TEXT) &&
+		    formatId == CF_DIBV5)
+		{
+			requested = formatId;
+			requestedKind = OHOS_CLIPBOARD_REQUEST_DIBV5;
+			continue;
+		}
+		if ((requestedKind == OHOS_CLIPBOARD_REQUEST_NONE ||
+		     requestedKind == OHOS_CLIPBOARD_REQUEST_TEXT) &&
+		    formatName &&
+		    ohos_clipboard_equals_ignore_case(formatName, OHOS_CLIPBOARD_IMAGE_BMP_FORMAT_NAME))
+		{
+			requested = formatId;
+			requestedKind = OHOS_CLIPBOARD_REQUEST_IMAGE_BMP;
+			continue;
+		}
+		if (requestedKind == OHOS_CLIPBOARD_REQUEST_NONE && formatId == CF_UNICODETEXT)
+		{
 			requested = CF_UNICODETEXT;
-		else if (requested == 0 && formatId == CF_TEXT)
+			requestedKind = OHOS_CLIPBOARD_REQUEST_TEXT;
+		}
+		else if (requestedKind == OHOS_CLIPBOARD_REQUEST_NONE && formatId == CF_TEXT)
+		{
 			requested = CF_TEXT;
-		else if (requested == 0 && formatId == CF_OEMTEXT)
+			requestedKind = OHOS_CLIPBOARD_REQUEST_TEXT;
+		}
+		else if (requestedKind == OHOS_CLIPBOARD_REQUEST_NONE && formatId == CF_OEMTEXT)
+		{
 			requested = CF_OEMTEXT;
+			requestedKind = OHOS_CLIPBOARD_REQUEST_TEXT;
+		}
 	}
 
 	clipboard->lastRemoteFormatCount = formatList->numFormats;
@@ -671,10 +2056,10 @@ static UINT ohos_clipboard_server_format_list(CliprdrClientContext* cliprdr,
 
 	if (requested == 0)
 	{
-		ohos_clipboard_log(clipboard, "cliprdr server format list has no supported text format");
+		ohos_clipboard_log(clipboard, "cliprdr server format list has no supported format");
 		return CHANNEL_RC_OK;
 	}
-	return ohos_clipboard_send_format_data_request(clipboard, requested);
+	return ohos_clipboard_send_format_data_request(clipboard, requested, requestedKind);
 }
 
 static UINT ohos_clipboard_server_format_list_response(
@@ -706,6 +2091,12 @@ static UINT ohos_clipboard_server_format_data_request(
 {
 	char error[160] = { 0 };
 	char* text = NULL;
+	char* html = NULL;
+	char* htmlPlain = NULL;
+	char* uri = NULL;
+	BYTE* bgra = NULL;
+	UINT32 imageWidth = 0;
+	UINT32 imageHeight = 0;
 	BYTE* data = NULL;
 	UINT32 dataLen = 0;
 	CLIPRDR_FORMAT_DATA_RESPONSE response = { 0 };
@@ -714,17 +2105,54 @@ static UINT ohos_clipboard_server_format_data_request(
 	if (!clipboard || !request || !cliprdr->ClientFormatDataResponse)
 		return ERROR_INVALID_PARAMETER;
 
-	const BOOL ok = ohos_clipboard_read_plain_text(clipboard, &text, error, sizeof(error));
-	if (ok && request->requestedFormatId == CF_UNICODETEXT)
+	if (request->requestedFormatId == OHOS_CLIPBOARD_FORMAT_HTML)
 	{
-		data = ohos_clipboard_utf8_to_utf16le(text, &dataLen);
+		if (ohos_clipboard_read_html(clipboard, &html, &htmlPlain, error, sizeof(error)))
+			data = ohos_clipboard_html_to_ms_html(html, &dataLen);
 	}
-	else if (ok && (request->requestedFormatId == CF_TEXT || request->requestedFormatId == CF_OEMTEXT))
+	else if (request->requestedFormatId == OHOS_CLIPBOARD_FORMAT_URIW)
 	{
-		dataLen = (UINT32)strlen(text) + 1U;
-		data = (BYTE*)calloc(dataLen, sizeof(BYTE));
-		if (data)
-			memcpy(data, text, dataLen - 1U);
+		if (ohos_clipboard_read_uri(clipboard, &uri, error, sizeof(error)))
+			data = ohos_clipboard_utf8_to_utf16le(uri, &dataLen);
+	}
+	else if (request->requestedFormatId == OHOS_CLIPBOARD_FORMAT_URI_LIST)
+	{
+		if (ohos_clipboard_read_uri(clipboard, &uri, error, sizeof(error)))
+			data = ohos_clipboard_uri_to_uri_list(uri, &dataLen);
+	}
+	else if (request->requestedFormatId == CF_DIB)
+	{
+		if (ohos_clipboard_read_pixelmap(clipboard, &bgra, &imageWidth, &imageHeight, error,
+		                                  sizeof(error)))
+			data = ohos_clipboard_bgra_to_dib(bgra, imageWidth, imageHeight, &dataLen, error,
+			                                  sizeof(error));
+	}
+	else
+	{
+		BOOL ok = ohos_clipboard_read_plain_text(clipboard, &text, error, sizeof(error));
+		if (!ok && ohos_clipboard_read_uri(clipboard, &uri, NULL, 0))
+		{
+			text = ohos_clipboard_strdup(uri);
+			ok = (text != NULL);
+		}
+		if (!ok && ohos_clipboard_read_html(clipboard, &html, &htmlPlain, NULL, 0))
+		{
+			text = ohos_clipboard_strdup((htmlPlain && htmlPlain[0] != '\0') ? htmlPlain : html);
+			ok = (text != NULL);
+		}
+
+		if (ok && request->requestedFormatId == CF_UNICODETEXT)
+		{
+			data = ohos_clipboard_utf8_to_utf16le(text, &dataLen);
+		}
+		else if (ok &&
+		         (request->requestedFormatId == CF_TEXT || request->requestedFormatId == CF_OEMTEXT))
+		{
+			dataLen = (UINT32)strlen(text) + 1U;
+			data = (BYTE*)calloc(dataLen, sizeof(BYTE));
+			if (data)
+				memcpy(data, text, dataLen - 1U);
+		}
 	}
 
 	response.common.msgType = CB_FORMAT_DATA_RESPONSE;
@@ -734,14 +2162,21 @@ static UINT ohos_clipboard_server_format_data_request(
 
 	++clipboard->localRequestCount;
 	if (data)
-		ohos_clipboard_log(clipboard, "cliprdr local text response sent: %" PRIu32 " bytes",
-		                   dataLen);
+		ohos_clipboard_log(clipboard, "cliprdr local response sent: format=%" PRIu32
+		                              " bytes=%" PRIu32,
+		                   request->requestedFormatId, dataLen);
 	else
-		ohos_clipboard_log(clipboard, "cliprdr local text request failed: %s", error);
+		ohos_clipboard_log(clipboard, "cliprdr local request failed: format=%" PRIu32
+		                              " error=%s",
+		                   request->requestedFormatId, error);
 
 	UINT rc = cliprdr->ClientFormatDataResponse(cliprdr, &response);
 	free(data);
+	free(bgra);
 	free(text);
+	free(html);
+	free(htmlPlain);
+	free(uri);
 	return rc;
 }
 
@@ -750,7 +2185,13 @@ static UINT ohos_clipboard_server_format_data_response(
 {
 	char error[160] = { 0 };
 	char* text = NULL;
+	char* html = NULL;
+	char* uri = NULL;
+	BYTE* bgra = NULL;
+	UINT32 imageWidth = 0;
+	UINT32 imageHeight = 0;
 	UINT32 requested = 0;
+	OHOS_CLIPBOARD_REQUEST_KIND requestedKind = OHOS_CLIPBOARD_REQUEST_NONE;
 	freerdpOhosClipboard* clipboard = ohos_clipboard_from_cliprdr(cliprdr);
 
 	if (!clipboard || !response)
@@ -766,7 +2207,97 @@ static UINT ohos_clipboard_server_format_data_response(
 
 	pthread_mutex_lock(&clipboard->lock);
 	requested = clipboard->requestedFormatId;
+	requestedKind = clipboard->requestedFormatKind;
+	clipboard->requestedFormatKind = OHOS_CLIPBOARD_REQUEST_NONE;
 	pthread_mutex_unlock(&clipboard->lock);
+
+	if (requestedKind == OHOS_CLIPBOARD_REQUEST_DIB ||
+	    requestedKind == OHOS_CLIPBOARD_REQUEST_DIBV5 ||
+	    requestedKind == OHOS_CLIPBOARD_REQUEST_IMAGE_BMP)
+	{
+		if (!ohos_clipboard_bitmap_to_bgra(response->requestedFormatData,
+		                                   response->common.dataLen, requestedKind, &bgra,
+		                                   &imageWidth, &imageHeight, error, sizeof(error)))
+		{
+			ohos_clipboard_log(clipboard, "cliprdr remote image decode failed: %s", error);
+			return CHANNEL_RC_OK;
+		}
+		if (!ohos_clipboard_write_pixelmap(clipboard, bgra, imageWidth, imageHeight,
+		                                   response->common.dataLen, error, sizeof(error)))
+		{
+			ohos_clipboard_log(clipboard, "HarmonyOS Pasteboard pixelmap write failed: %s",
+			                   error);
+			free(bgra);
+			return ERROR_INTERNAL_ERROR;
+		}
+		++clipboard->remoteResponseCount;
+		ohos_clipboard_log(clipboard,
+		                   "cliprdr remote image copied to HarmonyOS Pasteboard: %" PRIu32
+		                   "x%" PRIu32 " sourceBytes=%" PRIu32,
+		                   imageWidth, imageHeight, response->common.dataLen);
+		free(bgra);
+		return CHANNEL_RC_OK;
+	}
+
+	if (requestedKind == OHOS_CLIPBOARD_REQUEST_HTML)
+	{
+		html = ohos_clipboard_extract_ms_html(response->requestedFormatData,
+		                                     response->common.dataLen);
+		if (!html || html[0] == '\0')
+		{
+			free(html);
+			ohos_clipboard_log(clipboard, "cliprdr remote html response was empty");
+			return CHANNEL_RC_OK;
+		}
+		if (!ohos_clipboard_write_html(clipboard, html, NULL, error, sizeof(error)))
+		{
+			ohos_clipboard_log(clipboard, "HarmonyOS Pasteboard html write failed: %s", error);
+			free(html);
+			return ERROR_INTERNAL_ERROR;
+		}
+		++clipboard->remoteResponseCount;
+		ohos_clipboard_log(clipboard,
+		                   "cliprdr remote html copied to HarmonyOS Pasteboard: %zu bytes",
+		                   strlen(html));
+		free(html);
+		return CHANNEL_RC_OK;
+	}
+
+	if (requestedKind == OHOS_CLIPBOARD_REQUEST_URIW)
+	{
+		uri = ohos_clipboard_utf16le_to_utf8(response->requestedFormatData,
+		                                    response->common.dataLen);
+	}
+	else if (requestedKind == OHOS_CLIPBOARD_REQUEST_URI_LIST)
+	{
+		uri = ohos_clipboard_extract_uri_list_first(response->requestedFormatData,
+		                                           response->common.dataLen);
+		if (!uri)
+			uri = ohos_clipboard_bytes_to_string(response->requestedFormatData,
+			                                    response->common.dataLen);
+	}
+	if (requestedKind == OHOS_CLIPBOARD_REQUEST_URIW ||
+	    requestedKind == OHOS_CLIPBOARD_REQUEST_URI_LIST)
+	{
+		if (!uri || uri[0] == '\0')
+		{
+			free(uri);
+			ohos_clipboard_log(clipboard, "cliprdr remote uri response was empty");
+			return CHANNEL_RC_OK;
+		}
+		if (!ohos_clipboard_write_uri(clipboard, uri, error, sizeof(error)))
+		{
+			ohos_clipboard_log(clipboard, "HarmonyOS Pasteboard uri write failed: %s", error);
+			free(uri);
+			return ERROR_INTERNAL_ERROR;
+		}
+		++clipboard->remoteResponseCount;
+		ohos_clipboard_log(clipboard,
+		                   "cliprdr remote uri copied to HarmonyOS Pasteboard: %zu bytes",
+		                   strlen(uri));
+		free(uri);
+		return CHANNEL_RC_OK;
+	}
 
 	if (requested == CF_UNICODETEXT)
 	{
@@ -837,7 +2368,7 @@ static void ohos_clipboard_attach_cliprdr(freerdpOhosClipboard* clipboard,
 	pthread_mutex_unlock(&clipboard->lock);
 
 	++clipboard->channelConnectCount;
-	ohos_clipboard_log(clipboard, "cliprdr connected to HarmonyOS Pasteboard text backend");
+	ohos_clipboard_log(clipboard, "cliprdr connected to HarmonyOS Pasteboard backend");
 }
 
 static void ohos_clipboard_detach_cliprdr(freerdpOhosClipboard* clipboard,
@@ -853,11 +2384,12 @@ static void ohos_clipboard_detach_cliprdr(freerdpOhosClipboard* clipboard,
 			clipboard->cliprdr->custom = NULL;
 		clipboard->cliprdr = NULL;
 		clipboard->requestedFormatId = 0;
+		clipboard->requestedFormatKind = OHOS_CLIPBOARD_REQUEST_NONE;
 	}
 	pthread_mutex_unlock(&clipboard->lock);
 
 	++clipboard->channelDisconnectCount;
-	ohos_clipboard_log(clipboard, "cliprdr disconnected from HarmonyOS Pasteboard text backend");
+	ohos_clipboard_log(clipboard, "cliprdr disconnected from HarmonyOS Pasteboard backend");
 }
 
 static void ohos_clipboard_channel_connected(void* context, const ChannelConnectedEventArgs* event)
@@ -959,10 +2491,10 @@ static void ohos_clipboard_create_pasteboard(freerdpOhosClipboard* clipboard)
 	if (!clipboard->pasteboard)
 	{
 		ohos_clipboard_log(clipboard,
-		                   "HarmonyOS Pasteboard create failed; cliprdr will advertise no local text");
+		                   "HarmonyOS Pasteboard create failed; cliprdr will advertise no local formats");
 		return;
 	}
-	ohos_clipboard_log(clipboard, "HarmonyOS Pasteboard created for cliprdr text backend");
+	ohos_clipboard_log(clipboard, "HarmonyOS Pasteboard created for cliprdr backend");
 
 	clipboard->observer = OH_PasteboardObserver_Create();
 	if (!clipboard->observer)
@@ -1089,6 +2621,7 @@ void freerdp_ohos_clipboard_unregister(freerdpOhosClipboard* clipboard)
 	ohos_clipboard_registry_remove(clipboard);
 	clipboard->context = NULL;
 	clipboard->requestedFormatId = 0;
+	clipboard->requestedFormatKind = OHOS_CLIPBOARD_REQUEST_NONE;
 	++clipboard->unregisterCount;
 }
 
@@ -1121,7 +2654,8 @@ const char* freerdp_ohos_clipboard_get_diagnostics(freerdpOhosClipboard* clipboa
 	               " suppressedChanges=%" PRIu64 " errors=%" PRIu64
 	               " lastError=%" PRIu32 " lastRequestedFormat=%" PRIu32
 	               " lastRemoteFormats=%" PRIu32 " lastLocalFormats=%" PRIu32
-	               " lastTextBytes=%" PRIu32,
+	               " lastTextBytes=%" PRIu32 " lastHtmlBytes=%" PRIu32
+	               " lastUriBytes=%" PRIu32 " lastImageBytes=%" PRIu32,
 	               clipboard->registerCount, clipboard->unregisterCount,
 	               clipboard->channelConnectCount, clipboard->channelDisconnectCount,
 	               clipboard->monitorReadyCount, clipboard->localFormatListCount,
@@ -1131,6 +2665,7 @@ const char* freerdp_ohos_clipboard_get_diagnostics(freerdpOhosClipboard* clipboa
 	               clipboard->suppressedChangeCount, clipboard->errorCount,
 	               clipboard->lastError, clipboard->lastRequestedFormat,
 	               clipboard->lastRemoteFormatCount, clipboard->lastLocalFormatCount,
-	               clipboard->lastTextBytes);
+	               clipboard->lastTextBytes, clipboard->lastHtmlBytes, clipboard->lastUriBytes,
+	               clipboard->lastImageBytes);
 	return clipboard->diagnostics;
 }
