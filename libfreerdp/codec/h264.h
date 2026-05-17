@@ -30,6 +30,8 @@ extern "C"
 {
 #endif
 
+#define H264_OHOS_AVCODEC_FALLBACK_RC (-3300)
+
 	typedef BOOL (*pfnH264SubsystemInit)(H264_CONTEXT* h264);
 	typedef void (*pfnH264SubsystemUninit)(H264_CONTEXT* h264);
 
@@ -51,6 +53,7 @@ extern "C"
 	typedef void (*pfnH264OhosAvc444FrameCallback)(UINT32 surfaceId, UINT32 width,
 	                                               UINT32 height, UINT32 op, UINT32 codecId,
 	                                               void* userData);
+	typedef void (*pfnH264OhosAvcodecFallbackCallback)(const char* reason, void* userData);
 
 	struct S_H264_CONTEXT_SUBSYSTEM
 	{
@@ -76,6 +79,7 @@ extern "C"
 		UINT32 hwAccel;
 		UINT32 NumberOfThreads;
 		BOOL ohosSurfaceModeAllowed;
+		BOOL ohosAvcodecRuntimeDisabled;
 		H264_OHOS_SURFACE_TARGET ohosSurfaceTarget;
 		BOOL surfaceRendered;
 
@@ -110,6 +114,8 @@ extern "C"
 
 	FREERDP_LOCAL BOOL h264_context_set_ohos_surface_target(
 	    H264_CONTEXT* h264, H264_OHOS_SURFACE_TARGET target);
+
+	FREERDP_LOCAL BOOL h264_context_fallback_ohos_avcodec_to_software(H264_CONTEXT* h264);
 
 	FREERDP_LOCAL INT32 avc444_decompress_to_ohos_surfaces(
 	    H264_CONTEXT* luma, H264_CONTEXT* chroma, BYTE op, const RECTANGLE_16* regionRects,

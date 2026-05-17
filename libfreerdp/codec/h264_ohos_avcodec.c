@@ -12,6 +12,7 @@
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -93,6 +94,34 @@ static BOOL g_ohos_avcodec_avc444_enabled = FALSE;
 static BOOL g_ohos_avcodec_avc444_surface_route_enabled = FALSE;
 static pfnH264OhosAvc444FrameCallback g_ohos_avcodec_avc444_frame_callback = NULL;
 static void* g_ohos_avcodec_avc444_frame_callback_user_data = NULL;
+static pfnH264OhosAvcodecFallbackCallback g_ohos_avcodec_fallback_callback = NULL;
+static void* g_ohos_avcodec_fallback_callback_user_data = NULL;
+
+typedef struct
+{
+	UINT64 decoderAttempts;
+	UINT64 bufferDecoderActive;
+	UINT64 surfaceDecoderActive;
+	UINT64 decodeCalls;
+	UINT64 decodedFrames;
+	UINT64 noOutputFrames;
+	UINT64 failedFrames;
+	UINT64 inputWaitTimeouts;
+	UINT64 outputWaitTimeouts;
+	UINT64 droppedOutputFrames;
+	UINT64 fallbackRequests;
+	UINT32 lastWidth;
+	UINT32 lastHeight;
+	int32_t lastPixelFormat;
+	int32_t lastStride;
+	int32_t lastSliceHeight;
+	int32_t lastAsyncError;
+	BOOL lastSurfaceMode;
+	char lastFallbackReason[160];
+} OHOS_AVCODEC_DIAGNOSTICS;
+
+static pthread_mutex_t g_ohos_avcodec_stats_lock = PTHREAD_MUTEX_INITIALIZER;
+static OHOS_AVCODEC_DIAGNOSTICS g_ohos_avcodec_stats = { 0 };
 
 FREERDP_API BOOL freerdp_ohos_avcodec_set_output_surface(void* window, UINT32 width, UINT32 height,
                                                          BOOL enabled)
@@ -136,6 +165,141 @@ FREERDP_API BOOL freerdp_ohos_avcodec_set_avc444_frame_callback(
 	g_ohos_avcodec_avc444_frame_callback_user_data = userData;
 	pthread_mutex_unlock(&g_ohos_avcodec_surface_lock);
 	return TRUE;
+}
+
+FREERDP_API BOOL freerdp_ohos_avcodec_set_fallback_callback(
+    pfnH264OhosAvcodecFallbackCallback callback, void* userData)
+{
+	pthread_mutex_lock(&g_ohos_avcodec_surface_lock);
+	g_ohos_avcodec_fallback_callback = callback;
+	g_ohos_avcodec_fallback_callback_user_data = userData;
+	pthread_mutex_unlock(&g_ohos_avcodec_surface_lock);
+	return TRUE;
+}
+
+FREERDP_API const char* freerdp_ohos_avcodec_get_diagnostics(void)
+{
+	static char text[768];
+	OHOS_AVCODEC_DIAGNOSTICS stats = { 0 };
+	BOOL surfaceEnabled = FALSE;
+	BOOL avc444Enabled = FALSE;
+	BOOL avc444RouteEnabled = FALSE;
+	UINT32 surfaceWidth = 0;
+	UINT32 surfaceHeight = 0;
+	UINT32 avc444Width = 0;
+	UINT32 avc444Height = 0;
+
+	pthread_mutex_lock(&g_ohos_avcodec_stats_lock);
+	stats = g_ohos_avcodec_stats;
+	pthread_mutex_unlock(&g_ohos_avcodec_stats_lock);
+
+	pthread_mutex_lock(&g_ohos_avcodec_surface_lock);
+	surfaceEnabled = g_ohos_avcodec_surface_enabled;
+	surfaceWidth = g_ohos_avcodec_surface_width;
+	surfaceHeight = g_ohos_avcodec_surface_height;
+	avc444Enabled = g_ohos_avcodec_avc444_enabled;
+	avc444RouteEnabled = g_ohos_avcodec_avc444_surface_route_enabled;
+	avc444Width = g_ohos_avcodec_avc444_width;
+	avc444Height = g_ohos_avcodec_avc444_height;
+	pthread_mutex_unlock(&g_ohos_avcodec_surface_lock);
+
+	(void)snprintf(text, sizeof(text),
+	               "ohos avcodec: attempts=%" PRIu64 " active=buffer:%" PRIu64
+	               ",surface:%" PRIu64 " calls=%" PRIu64 " decoded=%" PRIu64
+	               " noOutput=%" PRIu64 " failed=%" PRIu64 " inputTimeout=%" PRIu64
+	               " outputTimeout=%" PRIu64 " dropped=%" PRIu64 " fallbacks=%" PRIu64
+	               " last=%ux%u mode=%s format=%d stride=%d slice=%d asyncError=%d"
+	               " outputSurface=%s:%ux%u avc444Surface=%s:%ux%u route=%s reason=%s",
+	               stats.decoderAttempts, stats.bufferDecoderActive, stats.surfaceDecoderActive,
+	               stats.decodeCalls, stats.decodedFrames, stats.noOutputFrames,
+	               stats.failedFrames, stats.inputWaitTimeouts, stats.outputWaitTimeouts,
+	               stats.droppedOutputFrames, stats.fallbackRequests, stats.lastWidth,
+	               stats.lastHeight, stats.lastSurfaceMode ? "surface" : "buffer",
+	               stats.lastPixelFormat, stats.lastStride, stats.lastSliceHeight,
+	               stats.lastAsyncError, surfaceEnabled ? "on" : "off", surfaceWidth,
+	               surfaceHeight, avc444Enabled ? "on" : "off", avc444Width, avc444Height,
+	               avc444RouteEnabled ? "on" : "off",
+	               stats.lastFallbackReason[0] == '\0' ? "none" : stats.lastFallbackReason);
+	return text;
+}
+
+static void ohos_avcodec_record_decoder_attempt(void)
+{
+	pthread_mutex_lock(&g_ohos_avcodec_stats_lock);
+	g_ohos_avcodec_stats.decoderAttempts++;
+	pthread_mutex_unlock(&g_ohos_avcodec_stats_lock);
+}
+
+static void ohos_avcodec_record_decoder_active(const H264_CONTEXT_OHOS_AVCODEC* sys)
+{
+	if (!sys)
+		return;
+
+	pthread_mutex_lock(&g_ohos_avcodec_stats_lock);
+	if (sys->surfaceMode)
+		g_ohos_avcodec_stats.surfaceDecoderActive++;
+	else
+		g_ohos_avcodec_stats.bufferDecoderActive++;
+	g_ohos_avcodec_stats.lastWidth = sys->width;
+	g_ohos_avcodec_stats.lastHeight = sys->height;
+	g_ohos_avcodec_stats.lastSurfaceMode = sys->surfaceMode;
+	g_ohos_avcodec_stats.lastPixelFormat = sys->outputPixelFormat;
+	g_ohos_avcodec_stats.lastStride = sys->outputStride;
+	g_ohos_avcodec_stats.lastSliceHeight = sys->outputSliceHeight;
+	pthread_mutex_unlock(&g_ohos_avcodec_stats_lock);
+}
+
+static void ohos_avcodec_record_progress(const H264_CONTEXT_OHOS_AVCODEC* sys)
+{
+	if (!sys)
+		return;
+
+	pthread_mutex_lock(&g_ohos_avcodec_stats_lock);
+	g_ohos_avcodec_stats.decodeCalls = sys->decodeCalls;
+	g_ohos_avcodec_stats.decodedFrames = sys->decodedFrames;
+	g_ohos_avcodec_stats.noOutputFrames = sys->noOutputFrames;
+	g_ohos_avcodec_stats.failedFrames = sys->failedFrames;
+	g_ohos_avcodec_stats.inputWaitTimeouts = sys->inputWaitTimeouts;
+	g_ohos_avcodec_stats.outputWaitTimeouts = sys->outputWaitTimeouts;
+	g_ohos_avcodec_stats.droppedOutputFrames = sys->droppedOutputFrames;
+	g_ohos_avcodec_stats.lastWidth = sys->width;
+	g_ohos_avcodec_stats.lastHeight = sys->height;
+	g_ohos_avcodec_stats.lastSurfaceMode = sys->surfaceMode;
+	g_ohos_avcodec_stats.lastPixelFormat = sys->outputPixelFormat;
+	g_ohos_avcodec_stats.lastStride = sys->outputStride;
+	g_ohos_avcodec_stats.lastSliceHeight = sys->outputSliceHeight;
+	g_ohos_avcodec_stats.lastAsyncError = sys->asyncError;
+	pthread_mutex_unlock(&g_ohos_avcodec_stats_lock);
+}
+
+static int ohos_avcodec_request_software_fallback(H264_CONTEXT* h264,
+                                                  H264_CONTEXT_OHOS_AVCODEC* sys,
+                                                  const char* reason)
+{
+	pfnH264OhosAvcodecFallbackCallback callback = NULL;
+	void* userData = NULL;
+	const char* safeReason = reason ? reason : "unknown";
+
+	if (sys)
+		ohos_avcodec_record_progress(sys);
+
+	pthread_mutex_lock(&g_ohos_avcodec_stats_lock);
+	g_ohos_avcodec_stats.fallbackRequests++;
+	(void)snprintf(g_ohos_avcodec_stats.lastFallbackReason,
+	               sizeof(g_ohos_avcodec_stats.lastFallbackReason), "%s", safeReason);
+	pthread_mutex_unlock(&g_ohos_avcodec_stats_lock);
+
+	pthread_mutex_lock(&g_ohos_avcodec_surface_lock);
+	callback = g_ohos_avcodec_fallback_callback;
+	userData = g_ohos_avcodec_fallback_callback_user_data;
+	pthread_mutex_unlock(&g_ohos_avcodec_surface_lock);
+
+	if (h264 && h264->log)
+		WLog_Print(h264->log, WLOG_WARN, "OHOS AVCodec software fallback requested: %s",
+		           safeReason);
+	if (callback)
+		callback(safeReason, userData);
+	return H264_OHOS_AVCODEC_FALLBACK_RC;
 }
 
 static BOOL ohos_avcodec_get_output_surface(OHNativeWindow** window, UINT32* width, UINT32* height)
@@ -518,6 +682,7 @@ static void ohos_avcodec_on_error(OH_AVCodec* codec, int32_t errorCode, void* us
 	sys->asyncError = errorCode ? errorCode : AV_ERR_UNKNOWN;
 	pthread_cond_broadcast(&sys->cond);
 	pthread_mutex_unlock(&sys->lock);
+	ohos_avcodec_record_progress(sys);
 
 	WLog_Print(sys->log, WLOG_WARN, "OHOS AVCodec async error=%d", errorCode);
 }
@@ -661,6 +826,7 @@ static BOOL ohos_avcodec_configure_decoder(H264_CONTEXT* h264, H264_CONTEXT_OHOS
 	if (!h264 || !sys || (h264->width == 0) || (h264->height == 0))
 		return TRUE;
 
+	ohos_avcodec_record_decoder_attempt();
 	sys->decoder = OH_VideoDecoder_CreateByMime(OH_AVCODEC_MIMETYPE_VIDEO_AVC);
 	if (!sys->decoder)
 		return FALSE;
@@ -833,6 +999,7 @@ success:
 		           h264->width, h264->height, sys->surfaceMode ? "surface" : "buffer",
 		           sys->outputPixelFormat, sys->outputStride, sys->outputSliceHeight);
 	}
+	ohos_avcodec_record_decoder_active(sys);
 	return TRUE;
 }
 
@@ -936,7 +1103,7 @@ static int ohos_avcodec_decompress(H264_CONTEXT* WINPR_RESTRICT h264,
 
 	sys = (H264_CONTEXT_OHOS_AVCODEC*)h264->pSystemData;
 	if (!sys || !sys->decoder || !sys->started)
-		return -3001;
+		return ohos_avcodec_request_software_fallback(h264, sys, "decoder not started");
 
 	h264->pYUVData[0] = NULL;
 	h264->pYUVData[1] = NULL;
@@ -947,9 +1114,15 @@ static int ohos_avcodec_decompress(H264_CONTEXT* WINPR_RESTRICT h264,
 	pthread_mutex_lock(&sys->lock);
 	if (!ohos_avcodec_wait_for_input(sys, &inputIndex, &inputBuffer))
 	{
+		const int32_t asyncError = sys->asyncError;
 		pthread_mutex_unlock(&sys->lock);
 		sys->inputWaitTimeouts++;
 		sys->noOutputFrames++;
+		ohos_avcodec_record_progress(sys);
+		if (asyncError != 0)
+			return ohos_avcodec_request_software_fallback(h264, sys, "async input error");
+		if (sys->inputWaitTimeouts >= 6)
+			return ohos_avcodec_request_software_fallback(h264, sys, "input buffer starvation");
 		if ((sys->inputWaitTimeouts <= 3) || ((sys->inputWaitTimeouts % 120) == 0))
 			WLog_Print(h264->log, WLOG_WARN,
 			           "OHOS AVCodec input wait timeout count=%" PRIu64 " calls=%" PRIu64,
@@ -963,10 +1136,11 @@ static int ohos_avcodec_decompress(H264_CONTEXT* WINPR_RESTRICT h264,
 	if (!dst || (capacity < 0) || ((UINT32)capacity < SrcSize))
 	{
 		sys->failedFrames++;
+		ohos_avcodec_record_progress(sys);
 		WLog_Print(h264->log, WLOG_WARN,
 		           "OHOS AVCodec input buffer invalid capacity=%d size=%u", capacity, SrcSize);
 		ohos_avcodec_return_empty_input(sys, inputIndex, inputBuffer);
-		return 0;
+		return ohos_avcodec_request_software_fallback(h264, sys, "input buffer invalid");
 	}
 
 	if (SrcSize > 0)
@@ -979,16 +1153,18 @@ static int ohos_avcodec_decompress(H264_CONTEXT* WINPR_RESTRICT h264,
 	if (OH_AVBuffer_SetBufferAttr(inputBuffer, &inputAttr) != AV_ERR_OK)
 	{
 		sys->failedFrames++;
+		ohos_avcodec_record_progress(sys);
 		ohos_avcodec_return_empty_input(sys, inputIndex, inputBuffer);
-		return 0;
+		return ohos_avcodec_request_software_fallback(h264, sys, "set input attr failed");
 	}
 
 	rc = OH_VideoDecoder_PushInputBuffer(sys->decoder, inputIndex);
 	if (rc != AV_ERR_OK)
 	{
 		sys->failedFrames++;
+		ohos_avcodec_record_progress(sys);
 		WLog_Print(h264->log, WLOG_WARN, "OHOS AVCodec push input failed rc=%d", (int)rc);
-		return 0;
+		return ohos_avcodec_request_software_fallback(h264, sys, "push input failed");
 	}
 
 	pthread_mutex_lock(&sys->lock);
@@ -997,8 +1173,14 @@ static int ohos_avcodec_decompress(H264_CONTEXT* WINPR_RESTRICT h264,
 
 	if (!hasOutput)
 	{
+		const int32_t asyncError = sys->asyncError;
 		sys->outputWaitTimeouts++;
 		sys->noOutputFrames++;
+		ohos_avcodec_record_progress(sys);
+		if (asyncError != 0)
+			return ohos_avcodec_request_software_fallback(h264, sys, "async output error");
+		if (sys->outputWaitTimeouts >= 30)
+			return ohos_avcodec_request_software_fallback(h264, sys, "output buffer starvation");
 		if ((sys->outputWaitTimeouts <= 3) || ((sys->outputWaitTimeouts % 120) == 0))
 			WLog_Print(h264->log, WLOG_DEBUG,
 			           "OHOS AVCodec output wait timeout count=%" PRIu64 " calls=%" PRIu64,
@@ -1007,6 +1189,7 @@ static int ohos_avcodec_decompress(H264_CONTEXT* WINPR_RESTRICT h264,
 	}
 
 	sys->decodedFrames++;
+	ohos_avcodec_record_progress(sys);
 	if ((sys->decodedFrames <= 3) || ((sys->decodedFrames % 120) == 0))
 	{
 		WLog_Print(h264->log, WLOG_INFO,

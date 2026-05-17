@@ -738,6 +738,15 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 	rc = avc420_decompress(surface->h264, bs->data, bs->length, surface->data, surface->format,
 	                       surface->scanline, surface->width, surface->height, meta->regionRects,
 	                       meta->numRegionRects);
+	if (rc == H264_OHOS_AVCODEC_FALLBACK_RC)
+	{
+		WLog_WARN(TAG, "OHOS AVCodec AVC420 decode requested software fallback");
+		if (!h264_context_fallback_ohos_avcodec_to_software(surface->h264))
+			return CHANNEL_RC_OK;
+		rc = avc420_decompress(surface->h264, bs->data, bs->length, surface->data, surface->format,
+		                       surface->scanline, surface->width, surface->height,
+		                       meta->regionRects, meta->numRegionRects);
+	}
 
 	if (rc < 0)
 	{
