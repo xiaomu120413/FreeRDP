@@ -323,6 +323,18 @@ static BOOL ohos_avcodec_get_output_surface(OHNativeWindow** window, UINT32* wid
 	return enabled && (*window != NULL) && (*width > 0) && (*height > 0);
 }
 
+BOOL h264_context_ohos_output_surface_available(UINT32 width, UINT32 height)
+{
+	BOOL available = FALSE;
+
+	pthread_mutex_lock(&g_ohos_avcodec_surface_lock);
+	available = g_ohos_avcodec_surface_enabled && (g_ohos_avcodec_surface_window != NULL) &&
+	            (width > 0) && (height > 0) && (g_ohos_avcodec_surface_width >= width) &&
+	            (g_ohos_avcodec_surface_height >= height);
+	pthread_mutex_unlock(&g_ohos_avcodec_surface_lock);
+	return available;
+}
+
 static BOOL ohos_avcodec_get_avc444_output_surfaces(OHNativeWindow** lumaWindow,
                                                     OHNativeWindow** chromaWindow, UINT32* width,
                                                     UINT32* height)

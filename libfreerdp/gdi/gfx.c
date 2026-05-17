@@ -620,6 +620,16 @@ fail:
 	return status;
 }
 
+static BOOL gdi_SurfaceCommand_IsFullSurfaceUpdate(const gdiGfxSurface* surface,
+                                                   const RDPGFX_SURFACE_COMMAND* cmd)
+{
+	if (!surface || !cmd)
+		return FALSE;
+	if ((cmd->left != 0) || (cmd->top != 0) || (cmd->width == 0) || (cmd->height == 0))
+		return FALSE;
+	return (cmd->width == surface->width) && (cmd->height == surface->height);
+}
+
 /**
  * Function description
  *
@@ -689,6 +699,7 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 	gdiGfxSurface* surface = nullptr;
 	RDPGFX_H264_METABLOCK* meta = nullptr;
 	RDPGFX_AVC420_BITMAP_STREAM* bs = nullptr;
+	BOOL allowOhosSurfaceMode = FALSE;
 	WINPR_ASSERT(gdi);
 	WINPR_ASSERT(context);
 	WINPR_ASSERT(cmd);
@@ -703,6 +714,13 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 		return ERROR_NOT_FOUND;
 	}
 
+	allowOhosSurfaceMode = gdi_SurfaceCommand_IsFullSurfaceUpdate(surface, cmd);
+#if defined(WITH_OHOS_AVCODEC)
+	allowOhosSurfaceMode =
+	    allowOhosSurfaceMode &&
+	    h264_context_ohos_output_surface_available(surface->width, surface->height);
+#endif
+
 	if (!surface->h264)
 	{
 		surface->h264 = h264_context_new(FALSE);
@@ -713,14 +731,14 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 			return ERROR_NOT_ENOUGH_MEMORY;
 		}
 
-		h264_context_set_ohos_surface_mode_allowed(surface->h264, TRUE);
+		h264_context_set_ohos_surface_mode_allowed(surface->h264, allowOhosSurfaceMode);
 		if (!h264_context_reset(surface->h264, surface->width, surface->height))
 			return ERROR_INTERNAL_ERROR;
 	}
 
 	if (!surface->h264)
 		return ERROR_NOT_SUPPORTED;
-	if (h264_context_set_ohos_surface_mode_allowed(surface->h264, TRUE))
+	if (h264_context_set_ohos_surface_mode_allowed(surface->h264, allowOhosSurfaceMode))
 	{
 		if (!h264_context_reset(surface->h264, surface->width, surface->height))
 			return ERROR_INTERNAL_ERROR;
@@ -872,6 +890,9 @@ static INT32 gdi_SurfaceCommand_AVC444_PrimaryOhosSurface(
 
 	if (!surface || !bs || !avc1 || !meta1)
 		return -1101;
+
+	if (!h264_context_ohos_output_surface_available(surface->width, surface->height))
+		return -1106;
 
 	if (bs->LC == 2)
 	{

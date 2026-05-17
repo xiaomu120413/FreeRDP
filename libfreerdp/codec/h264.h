@@ -124,6 +124,7 @@ extern "C"
 	    UINT32 AuxSrcSize, UINT32 nDstWidth, UINT32 nDstHeight);
 
 #ifdef WITH_OHOS_AVCODEC
+	FREERDP_LOCAL BOOL h264_context_ohos_output_surface_available(UINT32 width, UINT32 height);
 	FREERDP_LOCAL BOOL h264_context_ohos_avc444_surface_route_enabled(UINT32 width,
 	                                                                  UINT32 height);
 	FREERDP_LOCAL void h264_context_ohos_avc444_notify_frame(UINT32 surfaceId, UINT32 width,
