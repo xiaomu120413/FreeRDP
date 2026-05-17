@@ -11,12 +11,13 @@ FreeRDP OHOS client/backend layer.
 Current contents:
 
 - `ohos_keyboard.*`: maps HarmonyOS key codes to Windows virtual keys and marks
-  keys that require extended scancodes. The HAP native bridge calls this source
-  instead of owning the mapping itself.
+  keys that require extended scancodes. It also owns pressed-key state, modifier
+  synthesis, long-press repeat generation and release-all cleanup. The HAP
+  native bridge calls this source instead of owning the mapping or keyboard
+  state itself.
 
 Planned migration:
 
-- Keyboard pressed-key/repeat/modifier state.
 - IME Unicode dispatch helper.
 - `cliprdr` + OH_Pasteboard backend.
 - Display-control resize helper around `disp`.
