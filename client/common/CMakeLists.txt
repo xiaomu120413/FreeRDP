@@ -37,7 +37,8 @@ if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_display.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_graphics.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_ime.c
-       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_keyboard.c)
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_keyboard.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_config.c)
 endif()
 
 if(WITH_OHOS_PASTEBOARD)
