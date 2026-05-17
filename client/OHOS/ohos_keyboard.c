@@ -558,8 +558,7 @@ uint32_t freerdp_ohos_keyboard_map_keycode_to_windows_vk(uint32_t keyCode)
 		case OH_KEYCODE_NUMPAD_ENTER:
 			return VK_RETURN;
 		case OH_KEYCODE_DEL:
-		case OH_KEYCODE_FORWARD_DEL:
-			return VK_DELETE;
+			return VK_BACK;
 		case OH_KEYCODE_GRAVE:
 			return VK_OEM_3;
 		case OH_KEYCODE_MINUS:
@@ -584,6 +583,8 @@ uint32_t freerdp_ohos_keyboard_map_keycode_to_windows_vk(uint32_t keyCode)
 			return VK_NEXT;
 		case OH_KEYCODE_ESCAPE:
 			return VK_ESCAPE;
+		case OH_KEYCODE_FORWARD_DEL:
+			return VK_DELETE;
 		case OH_KEYCODE_CTRL_LEFT:
 			return VK_LCONTROL;
 		case OH_KEYCODE_CTRL_RIGHT:
@@ -673,8 +674,7 @@ uint32_t freerdp_ohos_keyboard_map_keycode_to_rdp_scancode(uint32_t keyCode)
 		case OH_KEYCODE_NUMPAD_ENTER:
 			return OHOS_RDP_SCANCODE_EXTENDED | 0x1Cu;
 		case OH_KEYCODE_DEL:
-		case OH_KEYCODE_FORWARD_DEL:
-			return OHOS_RDP_SCANCODE_EXTENDED | 0x53u;
+			return 0x0Eu;
 		case OH_KEYCODE_GRAVE:
 			return 0x29u;
 		case OH_KEYCODE_MINUS:
@@ -699,6 +699,8 @@ uint32_t freerdp_ohos_keyboard_map_keycode_to_rdp_scancode(uint32_t keyCode)
 			return OHOS_RDP_SCANCODE_EXTENDED | 0x51u;
 		case OH_KEYCODE_ESCAPE:
 			return 0x01u;
+		case OH_KEYCODE_FORWARD_DEL:
+			return OHOS_RDP_SCANCODE_EXTENDED | 0x53u;
 		case OH_KEYCODE_CTRL_LEFT:
 			return 0x1Du;
 		case OH_KEYCODE_CTRL_RIGHT:
@@ -739,7 +741,6 @@ int freerdp_ohos_keyboard_keycode_requires_extended_scancode(uint32_t keyCode)
 		case OH_KEYCODE_ALT_RIGHT:
 		case OH_KEYCODE_PAGE_UP:
 		case OH_KEYCODE_PAGE_DOWN:
-		case OH_KEYCODE_DEL:
 		case OH_KEYCODE_FORWARD_DEL:
 		case OH_KEYCODE_CTRL_RIGHT:
 		case OH_KEYCODE_META_LEFT:
