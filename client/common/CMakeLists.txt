@@ -39,6 +39,7 @@ if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
   list(APPEND SRCS
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_avc_surface.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_certificate.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_compositor.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_display.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_graphics.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_ime.c

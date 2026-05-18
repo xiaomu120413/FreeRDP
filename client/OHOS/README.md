@@ -33,6 +33,10 @@ Current contents:
 - `ohos_avc_surface.*`: owns HarmonyOS NativeImage/GLES decode surface creation
   for AVC streams. The HAP keeps only opaque lifecycle wiring and passes the
   resulting NativeWindow handles back into the FreeRDP AVCodec backend.
+- `ohos_compositor.*`: owns HarmonyOS render-target state, AVC420 direct
+  Surface route state, AVC444 decode-surface registration state and graphics
+  diagnostics. It is the landing point for the later GPU compositor; the HAP
+  should only pass the XComponent NativeWindow and lifecycle notifications.
 - `ohos_rdpgfx.*`: owns the HarmonyOS RDPGFX callback bridge, AVC420/AVC444
   capability/surface-command decisions and codec diagnostics. The HAP supplies
   only NativeWindow/AVCodec surface callbacks.
