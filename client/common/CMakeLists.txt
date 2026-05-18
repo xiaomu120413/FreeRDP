@@ -33,7 +33,11 @@ set(SRCS
 )
 
 if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
+  find_library(OHOS_EGL_LIBRARY EGL REQUIRED)
+  find_library(OHOS_GLESV3_LIBRARY GLESv3 REQUIRED)
+  find_library(OHOS_NATIVE_IMAGE_LIBRARY native_image REQUIRED)
   list(APPEND SRCS
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_avc_surface.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_certificate.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_display.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_graphics.c
@@ -42,6 +46,8 @@ if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_pointer.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_config.c)
+  list(APPEND PRIV_LIBS ${OHOS_EGL_LIBRARY} ${OHOS_GLESV3_LIBRARY}
+       ${OHOS_NATIVE_IMAGE_LIBRARY})
 endif()
 
 if(WITH_OHOS_PASTEBOARD)
