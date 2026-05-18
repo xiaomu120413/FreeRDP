@@ -207,6 +207,8 @@ BOOL freerdp_ohos_session_apply_settings(rdpSettings* settings,
 	}
 
 	const BOOL h264 = config->graphicsPipeline && config->h264;
+	const BOOL avc420 = h264;
+	const BOOL avc444 = FALSE;
 	if (!ohos_session_set_bool(settings, FreeRDP_SupportDynamicChannels, TRUE,
 	                           "SupportDynamicChannels", message, messageSize) ||
 	    !ohos_session_set_bool(settings, FreeRDP_SupportDisplayControl, config->displayControl,
@@ -217,9 +219,9 @@ BOOL freerdp_ohos_session_apply_settings(rdpSettings* settings,
 	                           "SupportGraphicsPipeline", message, messageSize) ||
 	    !ohos_session_set_bool(settings, FreeRDP_GfxH264, h264, "GfxH264", message,
 	                           messageSize) ||
-	    !ohos_session_set_bool(settings, FreeRDP_GfxAVC444, h264, "GfxAVC444", message,
+	    !ohos_session_set_bool(settings, FreeRDP_GfxAVC444, avc444, "GfxAVC444", message,
 	                           messageSize) ||
-	    !ohos_session_set_bool(settings, FreeRDP_GfxAVC444v2, h264, "GfxAVC444v2", message,
+	    !ohos_session_set_bool(settings, FreeRDP_GfxAVC444v2, avc444, "GfxAVC444v2", message,
 	                           messageSize) ||
 	    !ohos_session_set_uint32(settings, FreeRDP_GfxCapsFilter, 0, "GfxCapsFilter", message,
 	                             messageSize) ||
@@ -262,9 +264,10 @@ BOOL freerdp_ohos_session_apply_settings(rdpSettings* settings,
 
 	ohos_session_format_message(
 	    message, messageSize,
-	    "OHOS FreeRDP settings applied: cliprdr=%d disp=%d rdpsnd=%d audin=%d gfx=%d h264=%d",
+	    "OHOS FreeRDP settings applied: cliprdr=%d disp=%d rdpsnd=%d audin=%d gfx=%d "
+	    "h264=%d avc420=%d avc444=%d",
 	    config->clipboard, config->displayControl, config->audioPlayback, config->audioCapture,
-	    config->graphicsPipeline, h264);
+	    config->graphicsPipeline, h264, avc420, avc444);
 	return TRUE;
 }
 
