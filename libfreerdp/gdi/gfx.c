@@ -1018,21 +1018,26 @@ static UINT gdi_SurfaceCommand_AVC444(rdpGdi* gdi, RdpgfxClientContext* context,
 	meta2 = &avc2->meta;
 
 #if defined(WITH_OHOS_AVCODEC)
-	rc = gdi_SurfaceCommand_AVC444_PrimaryOhosSurface(surface, bs, avc1, meta1);
-	if (rc == 0)
-		return CHANNEL_RC_OK;
-	else if ((rc != -1102) && (rc != -1104) && (rc != H264_OHOS_AVCODEC_FALLBACK_RC))
-		WLog_WARN(TAG, "OHOS AVC444 primary surface route unavailable rc=%" PRId32
+	if (h264_context_ohos_avc444_surface_route_enabled(surface->width, surface->height))
+	{
+		rc = gdi_SurfaceCommand_AVC444_OhosSurfaces(surface, bs, avc1, avc2, meta1, meta2,
+		                                           cmd->codecId);
+		if (rc == 0)
+			goto surfaceDecoded;
+		WLog_WARN(TAG, "OHOS AVC444 GPU compositor route unavailable rc=%" PRId32
 		                "; using CPU/GDI fallback",
 		          rc);
-
-	rc = gdi_SurfaceCommand_AVC444_OhosSurfaces(surface, bs, avc1, avc2, meta1, meta2,
-	                                           cmd->codecId);
-	if (rc == 0)
-		goto surfaceDecoded;
-	else if (rc != -1002)
-		WLog_WARN(TAG, "OHOS AVC444 surface route unavailable rc=%" PRId32 "; using CPU/GDI fallback",
-		          rc);
+	}
+	else
+	{
+		rc = gdi_SurfaceCommand_AVC444_PrimaryOhosSurface(surface, bs, avc1, meta1);
+		if (rc == 0)
+			return CHANNEL_RC_OK;
+		else if ((rc != -1102) && (rc != -1104) && (rc != H264_OHOS_AVCODEC_FALLBACK_RC))
+			WLog_WARN(TAG, "OHOS AVC444 primary surface route unavailable rc=%" PRId32
+			                "; using CPU/GDI fallback",
+			          rc);
+	}
 #endif
 
 	if (!surface->h264)
