@@ -37,6 +37,11 @@ struct freerdp_ohos_compositor
 	BOOL avc444SurfacesReady;
 	UINT32 avc444Width;
 	UINT32 avc444Height;
+	void* avc444LumaImage;
+	void* avc444ChromaImage;
+	void* avc444EglDisplay;
+	void* avc444EglConfig;
+	void* avc444EglContext;
 	UINT32 avc444LumaTexture;
 	UINT32 avc444ChromaTexture;
 	UINT64 avc444LumaSurfaceId;
@@ -163,6 +168,11 @@ void freerdp_ohos_compositor_reset(freerdpOhosCompositor* compositor)
 	compositor->avc444SurfacesReady = FALSE;
 	compositor->avc444Width = 0;
 	compositor->avc444Height = 0;
+	compositor->avc444LumaImage = NULL;
+	compositor->avc444ChromaImage = NULL;
+	compositor->avc444EglDisplay = NULL;
+	compositor->avc444EglConfig = NULL;
+	compositor->avc444EglContext = NULL;
 	compositor->avc444LumaTexture = 0;
 	compositor->avc444ChromaTexture = 0;
 	compositor->avc444LumaSurfaceId = 0;
@@ -298,6 +308,11 @@ BOOL freerdp_ohos_compositor_set_avc444_decode_surfaces(
 		compositor->avc444SurfacesReady = FALSE;
 		compositor->avc444Width = 0;
 		compositor->avc444Height = 0;
+		compositor->avc444LumaImage = NULL;
+		compositor->avc444ChromaImage = NULL;
+		compositor->avc444EglDisplay = NULL;
+		compositor->avc444EglConfig = NULL;
+		compositor->avc444EglContext = NULL;
 		compositor->avc444LumaTexture = 0;
 		compositor->avc444ChromaTexture = 0;
 		compositor->avc444LumaSurfaceId = 0;
@@ -310,7 +325,8 @@ BOOL freerdp_ohos_compositor_set_avc444_decode_surfaces(
 	}
 
 	if (!targets || !targets->lumaWindow || !targets->chromaWindow || (targets->width == 0) ||
-	    (targets->height == 0))
+	    (targets->height == 0) || !targets->lumaImage || !targets->chromaImage ||
+	    !targets->eglDisplay || !targets->eglConfig || !targets->eglContext)
 	{
 		ohos_compositor_format_message(message, messageSize,
 		                               "OHOS compositor AVC444 decode surfaces are not ready");
@@ -321,6 +337,11 @@ BOOL freerdp_ohos_compositor_set_avc444_decode_surfaces(
 	compositor->avc444SurfacesReady = TRUE;
 	compositor->avc444Width = targets->width;
 	compositor->avc444Height = targets->height;
+	compositor->avc444LumaImage = targets->lumaImage;
+	compositor->avc444ChromaImage = targets->chromaImage;
+	compositor->avc444EglDisplay = targets->eglDisplay;
+	compositor->avc444EglConfig = targets->eglConfig;
+	compositor->avc444EglContext = targets->eglContext;
 	compositor->avc444LumaTexture = targets->lumaTexture;
 	compositor->avc444ChromaTexture = targets->chromaTexture;
 	compositor->avc444LumaSurfaceId = targets->lumaSurfaceId;
@@ -332,9 +353,10 @@ BOOL freerdp_ohos_compositor_set_avc444_decode_surfaces(
 	    message, messageSize,
 	    "OHOS compositor AVC444 decode surfaces set: %ux%u lumaTex=%" PRIu32
 	    " chromaTex=%" PRIu32 " lumaSurface=%" PRIu64 " chromaSurface=%" PRIu64
-	    " route=disabled-until-gpu-shader",
+	    " egl=%s route=disabled-until-gpu-shader",
 	    targets->width, targets->height, targets->lumaTexture, targets->chromaTexture,
-	    targets->lumaSurfaceId, targets->chromaSurfaceId);
+	    targets->lumaSurfaceId, targets->chromaSurfaceId,
+	    (targets->eglDisplay && targets->eglContext) ? "ready" : "none");
 	return TRUE;
 }
 
@@ -367,8 +389,8 @@ const char* freerdp_ohos_compositor_get_diagnostics(freerdpOhosCompositor* compo
 	    " target=set:%" PRIu64 ",clear:%" PRIu64
 	    " avc420=begin:%" PRIu64 ",end:%" PRIu64
 	    " avc444Surfaces=%s:%ux%u set:%" PRIu64 ",clear:%" PRIu64
-	    " lumaTex=%" PRIu32 " chromaTex=%" PRIu32 " lumaSurface=%" PRIu64
-	    " chromaSurface=%" PRIu64
+	    " lumaTex=%" PRIu32 " chromaTex=%" PRIu32 " images=%s egl=%s"
+	    " lumaSurface=%" PRIu64 " chromaSurface=%" PRIu64
 	    " avc444Frames=%" PRIu64 " lastAvc444=surface:%" PRIu32
 	    " size:%" PRIu32 "x%" PRIu32 " op:%" PRIu32 " codec:%" PRIu32,
 	    ohos_compositor_mode_name(compositor->mode),
@@ -378,7 +400,10 @@ const char* freerdp_ohos_compositor_get_diagnostics(freerdpOhosCompositor* compo
 	    compositor->avc444SurfacesReady ? "ready" : "none", compositor->avc444Width,
 	    compositor->avc444Height, compositor->avc444SurfaceSets,
 	    compositor->avc444SurfaceClears, compositor->avc444LumaTexture,
-	    compositor->avc444ChromaTexture, compositor->avc444LumaSurfaceId,
+	    compositor->avc444ChromaTexture,
+	    (compositor->avc444LumaImage && compositor->avc444ChromaImage) ? "ready" : "none",
+	    (compositor->avc444EglDisplay && compositor->avc444EglContext) ? "ready" : "none",
+	    compositor->avc444LumaSurfaceId,
 	    compositor->avc444ChromaSurfaceId, compositor->avc444Frames,
 	    compositor->lastAvc444SurfaceId, compositor->lastAvc444Width,
 	    compositor->lastAvc444Height, compositor->lastAvc444Op,

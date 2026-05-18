@@ -323,6 +323,11 @@ BOOL freerdp_ohos_avc_surface_pool_ensure_avc444(
 
 	targets->lumaWindow = pool->luma.window;
 	targets->chromaWindow = pool->chroma.window;
+	targets->lumaImage = pool->luma.image;
+	targets->chromaImage = pool->chroma.image;
+	targets->eglDisplay = pool->display;
+	targets->eglConfig = pool->config;
+	targets->eglContext = pool->context;
 	targets->width = pool->width;
 	targets->height = pool->height;
 	targets->lumaTexture = pool->luma.texture;

@@ -17,6 +17,11 @@ typedef struct
 {
 	void* lumaWindow;
 	void* chromaWindow;
+	void* lumaImage;
+	void* chromaImage;
+	void* eglDisplay;
+	void* eglConfig;
+	void* eglContext;
 	UINT32 width;
 	UINT32 height;
 	UINT32 lumaTexture;
