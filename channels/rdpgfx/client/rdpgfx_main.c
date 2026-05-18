@@ -38,6 +38,7 @@
 
 #include <freerdp/addin.h>
 #include <freerdp/channels/log.h>
+#include <freerdp/freerdp.h>
 
 #include "rdpgfx_common.h"
 #include "rdpgfx_codec.h"
@@ -498,6 +499,8 @@ static UINT rdpgfx_recv_caps_confirm_pdu(GENERIC_CHANNEL_CALLBACK* callback, wSt
 	{
 		WLog_Print(gfx->base.log, WLOG_ERROR,
 		           "Server did not confirm required RDPGFX AVC420 surface mode; refusing buffer/AVC444 fallback");
+		if (gfx->rdpcontext)
+			freerdp_set_last_error(gfx->rdpcontext, ERROR_NOT_SUPPORTED);
 		return ERROR_NOT_SUPPORTED;
 	}
 

@@ -808,6 +808,8 @@ static BOOL h264_context_init(H264_CONTEXT* h264)
 #ifdef WITH_OHOS_AVCODEC
 		if (h264->ohosAvcodecRuntimeDisabled && (subsystem == &g_Subsystem_OHOS_AVCodec))
 			continue;
+		if (!h264->ohosSurfaceModeAllowed && (subsystem == &g_Subsystem_OHOS_AVCodec))
+			continue;
 		if (h264->ohosSurfaceModeAllowed && (subsystem != &g_Subsystem_OHOS_AVCodec))
 			continue;
 #endif
