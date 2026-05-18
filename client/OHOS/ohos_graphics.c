@@ -20,6 +20,7 @@
 static const char g_mode_gdi[] = "gdi";
 static const char g_mode_rdpgfx[] = "rdpgfx";
 static const char g_mode_rdpgfx_h264[] = "rdpgfx-h264";
+static const char g_mode_invalid[] = "invalid";
 
 static void ohos_graphics_normalize_mode(const char* requestedMode, char* output,
                                          size_t outputSize)
@@ -29,8 +30,6 @@ static void ohos_graphics_normalize_mode(const char* requestedMode, char* output
 
 	output[0] = '\0';
 	const char* mode = requestedMode;
-	if (!mode || mode[0] == '\0')
-		mode = getenv("FREERDP_OHOS_GRAPHICS");
 	if (!mode)
 		return;
 
@@ -78,10 +77,10 @@ FREERDP_OHOS_GRAPHICS_CONFIG freerdp_ohos_graphics_config_from_mode(const char* 
 		return config;
 	}
 
-	config.mode = FREERDP_OHOS_GRAPHICS_MODE_GDI;
+	config.mode = FREERDP_OHOS_GRAPHICS_MODE_INVALID;
 	config.enabled = FALSE;
 	config.h264 = FALSE;
-	config.modeName = g_mode_gdi;
+	config.modeName = g_mode_invalid;
 	return config;
 }
 
@@ -110,8 +109,13 @@ size_t freerdp_ohos_graphics_fallback_modes(const char* requestedMode, const cha
 		return 1;
 	}
 
-	modes[0] = g_mode_gdi;
-	return 1;
+	if (config.mode == FREERDP_OHOS_GRAPHICS_MODE_GDI)
+	{
+		modes[0] = g_mode_gdi;
+		return 1;
+	}
+
+	return 0;
 }
 
 static BOOL ohos_graphics_contains_ci(const char* haystack, const char* needle)
@@ -196,11 +200,7 @@ BOOL freerdp_ohos_rdpgfx_surface_command_is_full_window(UINT32 left, UINT32 top,
                                                         UINT32 height, UINT32 targetWidth,
                                                         UINT32 targetHeight)
 {
-	if (left != 0 || top != 0 || width == 0 || height == 0)
-		return FALSE;
-	if (targetWidth == 0 || targetHeight == 0 || width != targetWidth)
-		return FALSE;
-
-	const UINT32 heightDelta = targetHeight > height ? targetHeight - height : height - targetHeight;
-	return heightDelta <= OHOS_H264_DESKTOP_ALIGNMENT;
+	return (left == 0) && (top == 0) && (width > 0) && (height > 0) &&
+	       (targetWidth > 0) && (targetHeight > 0) && (width == targetWidth) &&
+	       (height == targetHeight);
 }

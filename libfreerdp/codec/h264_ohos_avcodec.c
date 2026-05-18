@@ -21,11 +21,14 @@
 #include <winpr/interlocked.h>
 #include <winpr/wlog.h>
 
+#include <freerdp/log.h>
+
 #include "h264.h"
 
 #if defined(WITH_OHOS_AVCODEC)
 #include <multimedia/player_framework/native_avbuffer.h>
 #include <multimedia/player_framework/native_avbuffer_info.h>
+#include <multimedia/player_framework/native_avcapability.h>
 #include <multimedia/player_framework/native_avcodec_base.h>
 #include <multimedia/player_framework/native_avcodec_videodecoder.h>
 #include <multimedia/player_framework/native_avformat.h>
@@ -91,6 +94,10 @@ static OHNativeWindow* g_ohos_avcodec_surface_window = NULL;
 static UINT32 g_ohos_avcodec_surface_width = 0;
 static UINT32 g_ohos_avcodec_surface_height = 0;
 static BOOL g_ohos_avcodec_surface_enabled = FALSE;
+static OHNativeWindow* g_ohos_avcodec_logged_surface_window = NULL;
+static UINT32 g_ohos_avcodec_logged_surface_width = 0;
+static UINT32 g_ohos_avcodec_logged_surface_height = 0;
+static BOOL g_ohos_avcodec_logged_surface_enabled = FALSE;
 static OHNativeWindow* g_ohos_avcodec_avc444_luma_window = NULL;
 static OHNativeWindow* g_ohos_avcodec_avc444_chroma_window = NULL;
 static UINT32 g_ohos_avcodec_avc444_width = 0;
@@ -131,12 +138,33 @@ static OHOS_AVCODEC_DIAGNOSTICS g_ohos_avcodec_stats = { 0 };
 FREERDP_API BOOL freerdp_ohos_avcodec_set_output_surface(void* window, UINT32 width, UINT32 height,
                                                          BOOL enabled)
 {
+	BOOL changed = FALSE;
+	const BOOL nextEnabled = enabled && (window != NULL) && (width > 0) && (height > 0);
+
 	pthread_mutex_lock(&g_ohos_avcodec_surface_lock);
 	g_ohos_avcodec_surface_window = enabled ? (OHNativeWindow*)window : NULL;
 	g_ohos_avcodec_surface_width = enabled ? width : 0;
 	g_ohos_avcodec_surface_height = enabled ? height : 0;
-	g_ohos_avcodec_surface_enabled = enabled && (window != NULL) && (width > 0) && (height > 0);
+	g_ohos_avcodec_surface_enabled = nextEnabled;
+	changed = (g_ohos_avcodec_logged_surface_enabled != g_ohos_avcodec_surface_enabled) ||
+	          (g_ohos_avcodec_logged_surface_window != g_ohos_avcodec_surface_window) ||
+	          (g_ohos_avcodec_logged_surface_width != g_ohos_avcodec_surface_width) ||
+	          (g_ohos_avcodec_logged_surface_height != g_ohos_avcodec_surface_height);
+	if (changed)
+	{
+		g_ohos_avcodec_logged_surface_enabled = g_ohos_avcodec_surface_enabled;
+		g_ohos_avcodec_logged_surface_window = g_ohos_avcodec_surface_window;
+		g_ohos_avcodec_logged_surface_width = g_ohos_avcodec_surface_width;
+		g_ohos_avcodec_logged_surface_height = g_ohos_avcodec_surface_height;
+	}
 	pthread_mutex_unlock(&g_ohos_avcodec_surface_lock);
+
+	if (changed)
+	{
+		WLog_INFO(TAG, "OHOS AVCodec output surface %s window=%p size=%ux%u",
+		          nextEnabled ? "enabled" : "disabled", window, nextEnabled ? width : 0,
+		          nextEnabled ? height : 0);
+	}
 	return TRUE;
 }
 
@@ -768,6 +796,12 @@ static void ohos_avcodec_on_new_output_buffer(OH_AVCodec* codec, uint32_t index,
 	BOOL surfaceMode = FALSE;
 	BOOL renderSurface = FALSE;
 	BOOL releaseSurface = FALSE;
+	UINT64 surfaceFrame = 0;
+	UINT64 surfaceCalls = 0;
+	UINT64 surfaceDropped = 0;
+	UINT64 surfaceFailed = 0;
+	UINT32 surfaceWidth = 0;
+	UINT32 surfaceHeight = 0;
 	WINPR_UNUSED(codec);
 
 	if (!sys || !sys->primitivesReady || !buffer)
@@ -790,12 +824,18 @@ static void ohos_avcodec_on_new_output_buffer(OH_AVCodec* codec, uint32_t index,
 				sys->lastSurfaceRenderNs = nowNs;
 				sys->decodedFrames++;
 				renderSurface = TRUE;
+				surfaceFrame = sys->decodedFrames;
 			}
 			else
 			{
 				sys->droppedOutputFrames++;
 				releaseSurface = TRUE;
 			}
+			surfaceCalls = sys->decodeCalls;
+			surfaceDropped = sys->droppedOutputFrames;
+			surfaceFailed = sys->failedFrames;
+			surfaceWidth = sys->width;
+			surfaceHeight = sys->height;
 			sys->outputReady = FALSE;
 			pthread_cond_broadcast(&sys->cond);
 		}
@@ -839,11 +879,29 @@ static void ohos_avcodec_on_new_output_buffer(OH_AVCodec* codec, uint32_t index,
 		{
 			pthread_mutex_lock(&sys->lock);
 			sys->failedFrames++;
+			surfaceFailed = sys->failedFrames;
 			pthread_mutex_unlock(&sys->lock);
 			if (sys->failedFrames <= 3)
 				WLog_Print(sys->log, WLOG_WARN,
 				           "OHOS AVCodec surface output release failed rc=%d render=%d",
 				           (int)rc, renderSurface ? 1 : 0);
+		}
+		else if (renderSurface &&
+		         ((surfaceFrame <= 3) || ((surfaceFrame % 60) == 0)))
+		{
+			WLog_Print(sys->log, WLOG_INFO,
+			           "OHOS AVCodec surface output rendered frame=%" PRIu64
+			           " calls=%" PRIu64 " dropped=%" PRIu64 " failed=%" PRIu64
+			           " size=%ux%u attrSize=%d offset=%d flags=0x%x pts=%" PRId64,
+			           surfaceFrame, surfaceCalls, surfaceDropped, surfaceFailed, surfaceWidth,
+			           surfaceHeight, attr.size, attr.offset, attr.flags, attr.pts);
+		}
+		else if (releaseSurface && ((surfaceDropped <= 3) || ((surfaceDropped % 120) == 0)))
+		{
+			WLog_Print(sys->log, WLOG_DEBUG,
+			           "OHOS AVCodec surface output dropped frame candidate dropped=%" PRIu64
+			           " calls=%" PRIu64 " size=%ux%u",
+			           surfaceDropped, surfaceCalls, surfaceWidth, surfaceHeight);
 		}
 		ohos_avcodec_record_progress(sys);
 	}
@@ -890,8 +948,8 @@ static void ohos_avcodec_close_decoder(H264_CONTEXT_OHOS_AVCODEC* sys)
 }
 
 static BOOL ohos_avcodec_configure_decoder(H264_CONTEXT* h264, H264_CONTEXT_OHOS_AVCODEC* sys,
-                                           int32_t pixelFormat, BOOL setPixelFormat,
-                                           OHNativeWindow* outputSurface)
+                                            int32_t pixelFormat, BOOL setPixelFormat,
+                                            OHNativeWindow* outputSurface)
 {
 	bool isValid = false;
 	OH_AVErrCode rc = AV_ERR_OK;
@@ -902,15 +960,34 @@ static BOOL ohos_avcodec_configure_decoder(H264_CONTEXT* h264, H264_CONTEXT_OHOS
 		return TRUE;
 
 	ohos_avcodec_record_decoder_attempt();
-	sys->decoder = OH_VideoDecoder_CreateByMime(OH_AVCODEC_MIMETYPE_VIDEO_AVC);
+	OH_AVCapability* capability =
+	    OH_AVCodec_GetCapabilityByCategory(OH_AVCODEC_MIMETYPE_VIDEO_AVC, false, HARDWARE);
+	if (capability)
+	{
+		const char* name = OH_AVCapability_GetName(capability);
+		if (name && name[0])
+		{
+			sys->decoder = OH_VideoDecoder_CreateByName(name);
+			if (sys->decoder)
+				WLog_Print(h264->log, WLOG_INFO, "OHOS AVCodec hardware H264 decoder selected: %s",
+				           name);
+			else
+				WLog_Print(h264->log, WLOG_WARN,
+				           "OHOS AVCodec hardware decoder create failed: %s", name);
+		}
+	}
 	if (!sys->decoder)
+	{
+		WLog_Print(h264->log, WLOG_WARN,
+		           "OHOS AVCodec hardware H264 decoder unavailable; no OHOS decoder created");
 		return FALSE;
+	}
 
 	rc = OH_VideoDecoder_IsValid(sys->decoder, &isValid);
 	if ((rc != AV_ERR_OK) || !isValid)
 	{
 		WLog_Print(h264->log, WLOG_WARN,
-		           "OHOS AVCodec H264 decoder invalid: valid=%d rc=%d; falling back to software H264",
+		           "OHOS AVCodec hardware H264 decoder invalid: valid=%d rc=%d",
 		           isValid ? 1 : 0, (int)rc);
 		ohos_avcodec_close_decoder(sys);
 		return FALSE;
@@ -937,17 +1014,21 @@ static BOOL ohos_avcodec_configure_decoder(H264_CONTEXT* h264, H264_CONTEXT_OHOS
 		return FALSE;
 	}
 
-	if (setPixelFormat)
+	if (outputSurface)
+		OH_AVFormat_SetIntValue(format, OH_MD_KEY_PIXEL_FORMAT, AV_PIXEL_FORMAT_SURFACE_FORMAT);
+	else if (setPixelFormat)
 		OH_AVFormat_SetIntValue(format, OH_MD_KEY_PIXEL_FORMAT, pixelFormat);
-	OH_AVFormat_SetIntValue(format, OH_MD_KEY_VIDEO_ENABLE_LOW_LATENCY, 1);
+	if (!outputSurface)
+		OH_AVFormat_SetIntValue(format, OH_MD_KEY_VIDEO_ENABLE_LOW_LATENCY, 1);
 
 	rc = OH_VideoDecoder_Configure(sys->decoder, format);
 	OH_AVFormat_Destroy(format);
 	if (rc != AV_ERR_OK)
 	{
 		WLog_Print(h264->log, WLOG_DEBUG,
-		           "OHOS AVCodec configure failed rc=%d pixelFormat=%d setPixel=%d", (int)rc,
-		           pixelFormat, setPixelFormat ? 1 : 0);
+		           "OHOS AVCodec configure failed rc=%d pixelFormat=%d setPixel=%d surface=%d",
+		           (int)rc, outputSurface ? AV_PIXEL_FORMAT_SURFACE_FORMAT : pixelFormat,
+		           (setPixelFormat || outputSurface) ? 1 : 0, outputSurface ? 1 : 0);
 		ohos_avcodec_close_decoder(sys);
 		return FALSE;
 	}
@@ -1040,7 +1121,8 @@ static BOOL ohos_avcodec_open_decoder(H264_CONTEXT* h264, H264_CONTEXT_OHOS_AVCO
 			return FALSE;
 		}
 
-		if (ohos_avcodec_configure_decoder(h264, sys, 0, FALSE, outputSurface))
+		if (ohos_avcodec_configure_decoder(h264, sys, AV_PIXEL_FORMAT_SURFACE_FORMAT, TRUE,
+		                                    outputSurface))
 			goto success;
 
 		WLog_Print(h264->log, WLOG_WARN,
@@ -1060,7 +1142,7 @@ static BOOL ohos_avcodec_open_decoder(H264_CONTEXT* h264, H264_CONTEXT_OHOS_AVCO
 		goto success;
 
 	WLog_Print(h264->log, WLOG_WARN,
-	           "OHOS AVCodec H264 decoder unavailable for %ux%u; falling back to software H264",
+	           "OHOS AVCodec hardware H264 decoder unavailable for %ux%u",
 	           h264->width, h264->height);
 	return FALSE;
 
@@ -1162,7 +1244,7 @@ static void ohos_avcodec_return_empty_input(H264_CONTEXT_OHOS_AVCODEC* sys, uint
 }
 
 static int ohos_avcodec_decompress(H264_CONTEXT* WINPR_RESTRICT h264,
-                                   const BYTE* WINPR_RESTRICT pSrcData, UINT32 SrcSize)
+                                    const BYTE* WINPR_RESTRICT pSrcData, UINT32 SrcSize)
 {
 	uint32_t inputIndex = 0;
 	OH_AVErrCode rc = AV_ERR_OK;
@@ -1256,6 +1338,16 @@ static int ohos_avcodec_decompress(H264_CONTEXT* WINPR_RESTRICT h264,
 	{
 		h264->surfaceRendered = TRUE;
 		ohos_avcodec_record_progress(sys);
+		if ((sys->decodeCalls <= 3) || ((sys->decodeCalls % 120) == 0))
+		{
+			WLog_Print(h264->log, WLOG_INFO,
+			           "OHOS AVCodec surface input pushed call=%" PRIu64
+			           " src=%u outputSurface=%p size=%ux%u rendered=%" PRIu64
+			           " dropped=%" PRIu64 " failed=%" PRIu64,
+			           sys->decodeCalls, SrcSize, (void*)sys->outputSurface, sys->width,
+			           sys->height, sys->decodedFrames, sys->droppedOutputFrames,
+			           sys->failedFrames);
+		}
 		return 1;
 	}
 

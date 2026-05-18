@@ -28,6 +28,7 @@ typedef struct
 	pcRdpgfxStartFrame startFrame;
 	pcRdpgfxEndFrame endFrame;
 	pcRdpgfxSurfaceCommand surfaceCommand;
+	pcRdpgfxCapsAdvertise capsAdvertise;
 	pcRdpgfxCapsConfirm capsConfirm;
 } FREERDP_OHOS_RDPGFX_HOOKS;
 
@@ -83,6 +84,11 @@ struct freerdp_ohos_rdpgfx_bridge
 	UINT64 codecUnknown;
 	UINT64 h264SurfaceSubrectSkips;
 	UINT64 h264SurfaceNoDirect;
+	UINT32 capsAdvertises;
+	UINT32 advertisedCapsSets;
+	BOOL advertisedAvc420;
+	UINT32 advertisedVersion;
+	UINT32 advertisedFlags;
 	UINT32 capsConfirms;
 	UINT32 confirmedMode;
 	UINT32 confirmedVersion;
@@ -307,6 +313,75 @@ static void ohos_rdpgfx_record_connection_caps_snapshot(freerdpOhosRdpgfxBridge*
 	                               plugin->connectionCaps.flags, "connection-caps-snapshot");
 }
 
+static void ohos_rdpgfx_record_caps_advertise(freerdpOhosRdpgfxBridge* bridge,
+                                              const RDPGFX_CAPS_ADVERTISE_PDU* capsAdvertise)
+{
+	if (!bridge)
+		return;
+
+	if (!capsAdvertise || !capsAdvertise->capsSets)
+	{
+		UINT32 total = 0;
+		EnterCriticalSection(&bridge->lock);
+		total = ++bridge->capsAdvertises;
+		bridge->advertisedCapsSets = 0;
+		bridge->advertisedAvc420 = FALSE;
+		bridge->advertisedVersion = 0;
+		bridge->advertisedFlags = 0;
+		LeaveCriticalSection(&bridge->lock);
+		ohos_rdpgfx_log(bridge, "rdpgfx caps advertise: count=0 advertises=%" PRIu32,
+		                total);
+		return;
+	}
+
+	UINT32 total = 0;
+	BOOL advertisedAvc420 = FALSE;
+	UINT32 advertisedVersion = 0;
+	UINT32 advertisedFlags = 0;
+	for (UINT32 index = 0; index < capsAdvertise->capsSetCount; index++)
+	{
+		const RDPGFX_CAPSET* capsSet = &(capsAdvertise->capsSets[index]);
+		if (capsSet->version == RDPGFX_CAPVERSION_81)
+		{
+			advertisedVersion = capsSet->version;
+			advertisedFlags = capsSet->flags;
+			if ((capsSet->flags & RDPGFX_CAPS_FLAG_AVC420_ENABLED) != 0)
+				advertisedAvc420 = TRUE;
+		}
+	}
+
+	EnterCriticalSection(&bridge->lock);
+	total = ++bridge->capsAdvertises;
+	bridge->advertisedCapsSets = capsAdvertise->capsSetCount;
+	bridge->advertisedAvc420 = advertisedAvc420;
+	bridge->advertisedVersion = advertisedVersion;
+	bridge->advertisedFlags = advertisedFlags;
+	LeaveCriticalSection(&bridge->lock);
+
+	ohos_rdpgfx_log(bridge,
+	                "rdpgfx caps advertise: count=%" PRIu32 " avc420=%s"
+	                " v81Version=0x%08" PRIX32 " v81Flags=0x%08" PRIX32
+	                " advertises=%" PRIu32,
+	                capsAdvertise->capsSetCount, advertisedAvc420 ? "yes" : "no",
+	                advertisedVersion, advertisedFlags, total);
+	for (UINT32 index = 0; index < capsAdvertise->capsSetCount; index++)
+	{
+		const RDPGFX_CAPSET* capsSet = &(capsAdvertise->capsSets[index]);
+		const BOOL avc420 = freerdp_ohos_rdpgfx_caps_confirm_is_avc420(
+		    capsSet->version, capsSet->flags);
+		const BOOL avc444 = freerdp_ohos_rdpgfx_caps_confirm_is_avc444(
+		    capsSet->version, capsSet->flags);
+		ohos_rdpgfx_log(bridge,
+		                "rdpgfx caps advertise[%" PRIu32 "]: version=0x%08" PRIX32
+		                " length=%" PRIu32 " flags=0x%08" PRIX32
+		                " avc420=%s avcDisabled=%s avc444Cap=%s",
+		                index, capsSet->version, capsSet->length, capsSet->flags,
+		                avc420 ? "yes" : "no",
+		                (capsSet->flags & RDPGFX_CAPS_FLAG_AVC_DISABLED) != 0 ? "yes" : "no",
+		                avc444 ? "yes" : "no");
+	}
+}
+
 static void ohos_rdpgfx_record_surface_command(freerdpOhosRdpgfxBridge* bridge,
                                                const RDPGFX_SURFACE_COMMAND* command)
 {
@@ -480,6 +555,21 @@ static UINT ohos_rdpgfx_end_frame(RdpgfxClientContext* context,
 	return original ? original(context, endFrame) : ERROR_INTERNAL_ERROR;
 }
 
+static UINT ohos_rdpgfx_caps_advertise(RdpgfxClientContext* context,
+                                       const RDPGFX_CAPS_ADVERTISE_PDU* capsAdvertise)
+{
+	freerdpOhosRdpgfxBridge* bridge = ohos_rdpgfx_bridge_from_context(context);
+	pcRdpgfxCapsAdvertise original = NULL;
+	if (bridge)
+	{
+		ohos_rdpgfx_record_caps_advertise(bridge, capsAdvertise);
+		EnterCriticalSection(&bridge->lock);
+		original = bridge->hooks.capsAdvertise;
+		LeaveCriticalSection(&bridge->lock);
+	}
+	return original ? original(context, capsAdvertise) : ERROR_BAD_CONFIGURATION;
+}
+
 static UINT ohos_rdpgfx_caps_confirm(RdpgfxClientContext* context,
                                      const RDPGFX_CAPS_CONFIRM_PDU* capsConfirm)
 {
@@ -639,6 +729,11 @@ void freerdp_ohos_rdpgfx_bridge_reset(freerdpOhosRdpgfxBridge* bridge, BOOL requ
 	bridge->codecUnknown = 0;
 	bridge->h264SurfaceSubrectSkips = 0;
 	bridge->h264SurfaceNoDirect = 0;
+	bridge->capsAdvertises = 0;
+	bridge->advertisedCapsSets = 0;
+	bridge->advertisedAvc420 = FALSE;
+	bridge->advertisedVersion = 0;
+	bridge->advertisedFlags = 0;
 	bridge->capsConfirms = 0;
 	bridge->confirmedMode = OHOS_RDPGFX_CONFIRMED_NONE;
 	bridge->confirmedVersion = 0;
@@ -695,6 +790,7 @@ BOOL freerdp_ohos_rdpgfx_bridge_attach(freerdpOhosRdpgfxBridge* bridge,
 	bridge->hooks.startFrame = gfx->StartFrame;
 	bridge->hooks.endFrame = gfx->EndFrame;
 	bridge->hooks.surfaceCommand = gfx->SurfaceCommand;
+	bridge->hooks.capsAdvertise = gfx->CapsAdvertise;
 	bridge->hooks.capsConfirm = gfx->CapsConfirm;
 	bridge->h264SurfaceMode = config->h264SurfaceMode;
 	bridge->h264SurfaceActive = FALSE;
@@ -713,6 +809,7 @@ BOOL freerdp_ohos_rdpgfx_bridge_attach(freerdpOhosRdpgfxBridge* bridge,
 		gfx->EndFrame = ohos_rdpgfx_end_frame;
 	if (bridge->hooks.surfaceCommand)
 		gfx->SurfaceCommand = ohos_rdpgfx_surface_command;
+	gfx->CapsAdvertise = ohos_rdpgfx_caps_advertise;
 	gfx->CapsConfirm = ohos_rdpgfx_caps_confirm;
 
 	ohos_rdpgfx_record_connection_caps_snapshot(bridge, gfx);
@@ -736,6 +833,7 @@ void freerdp_ohos_rdpgfx_bridge_detach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 		bridge->hooks.startFrame = NULL;
 		bridge->hooks.endFrame = NULL;
 		bridge->hooks.surfaceCommand = NULL;
+		bridge->hooks.capsAdvertise = NULL;
 		bridge->hooks.capsConfirm = NULL;
 		bridge->gdiAttached = FALSE;
 		bridge->h264SurfaceActive = FALSE;
@@ -750,6 +848,7 @@ void freerdp_ohos_rdpgfx_bridge_detach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 	active->StartFrame = hooks.startFrame;
 	active->EndFrame = hooks.endFrame;
 	active->SurfaceCommand = hooks.surfaceCommand;
+	active->CapsAdvertise = hooks.capsAdvertise;
 	active->CapsConfirm = hooks.capsConfirm;
 }
 
@@ -774,7 +873,10 @@ const char* freerdp_ohos_rdpgfx_bridge_get_diagnostics(freerdpOhosRdpgfxBridge* 
 	(void)snprintf(bridge->diagnostics, sizeof(bridge->diagnostics),
 	               "OHOS rdpgfx stats: runtime=%s h264=%s bridge=%s connected=%" PRIu32
 	               " disconnected=%" PRIu32 " initFailed=%" PRIu32 " frames=%" PRIu64
-	               "/%" PRIu64 " surfaceCommands=%" PRIu64 " confirmed=%s "
+	               "/%" PRIu64 " surfaceCommands=%" PRIu64
+	               " capsAdvertise=%" PRIu32 "/%" PRIu32
+	               " advertisedAvc420=%s advertisedV81=0x%08" PRIX32
+	               " advertisedFlags=0x%08" PRIX32 " confirmed=%s "
 	               "capsVersion=0x%08" PRIX32 " capsFlags=0x%08" PRIX32
 	               " capsConfirms=%" PRIu32
 	               " codecs=raw:%" PRIu64 ",progressive:%" PRIu64 ",cavideo:%" PRIu64
@@ -787,7 +889,10 @@ const char* freerdp_ohos_rdpgfx_bridge_get_diagnostics(freerdpOhosRdpgfxBridge* 
 	               bridge->h264Requested ? "requested" : "off",
 	               bridge->gdiAttached ? "attached" : "detached", bridge->connected,
 	               bridge->disconnected, bridge->initFailed, bridge->startFrames, bridge->endFrames,
-	               bridge->surfaceCommands, ohos_rdpgfx_confirmed_mode_name(bridge->confirmedMode),
+	               bridge->surfaceCommands, bridge->capsAdvertises, bridge->advertisedCapsSets,
+	               bridge->advertisedAvc420 ? "yes" : "no", bridge->advertisedVersion,
+	               bridge->advertisedFlags,
+	               ohos_rdpgfx_confirmed_mode_name(bridge->confirmedMode),
 	               bridge->confirmedVersion, bridge->confirmedFlags, bridge->capsConfirms,
 	               bridge->codecUncompressed, bridge->codecProgressive, bridge->codecCavideo,
 	               bridge->codecClearCodec, bridge->codecPlanar, bridge->codecAvc420,
