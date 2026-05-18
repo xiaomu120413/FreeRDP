@@ -13,6 +13,7 @@
 #include <freerdp/channels/disp.h>
 #include <freerdp/channels/rdpgfx.h>
 #include <freerdp/client/channels.h>
+#include <freerdp/constants.h>
 #include <freerdp/settings_keys.h>
 #include <winpr/crt.h>
 
@@ -42,6 +43,16 @@ static BOOL ohos_session_set_uint32(rdpSettings* settings, FreeRDP_Settings_Keys
                                     size_t messageSize)
 {
 	if (freerdp_settings_set_uint32(settings, key, value))
+		return TRUE;
+	ohos_session_format_message(message, messageSize, "set %s failed", name);
+	return FALSE;
+}
+
+static BOOL ohos_session_set_string(rdpSettings* settings, FreeRDP_Settings_Keys_String key,
+                                    const char* value, const char* name, char* message,
+                                    size_t messageSize)
+{
+	if (freerdp_settings_set_string(settings, key, value ? value : ""))
 		return TRUE;
 	ohos_session_format_message(message, messageSize, "set %s failed", name);
 	return FALSE;
@@ -94,6 +105,95 @@ void freerdp_ohos_session_config_from_graphics(const FREERDP_OHOS_GRAPHICS_CONFI
 		config->graphicsPipeline = graphics->enabled;
 		config->h264 = graphics->enabled && graphics->h264;
 	}
+}
+
+BOOL freerdp_ohos_session_apply_connection_settings(
+    rdpSettings* settings, const FREERDP_OHOS_CONNECTION_CONFIG* config, char* message,
+    size_t messageSize)
+{
+	if (!settings || !config)
+	{
+		ohos_session_format_message(message, messageSize,
+		                            "OHOS connection settings input invalid");
+		return FALSE;
+	}
+
+	if (!config->serverHostname || config->serverHostname[0] == '\0')
+	{
+		ohos_session_format_message(message, messageSize, "server hostname is required");
+		return FALSE;
+	}
+	if (!config->username || config->username[0] == '\0')
+	{
+		ohos_session_format_message(message, messageSize, "username is required");
+		return FALSE;
+	}
+	if (config->serverPort == 0 || config->desktopWidth == 0 || config->desktopHeight == 0)
+	{
+		ohos_session_format_message(
+		    message, messageSize,
+		    "server port and desktop dimensions are required: port=%" PRIu32 " desktop=%" PRIu32
+		    "x%" PRIu32,
+		    config->serverPort, config->desktopWidth, config->desktopHeight);
+		return FALSE;
+	}
+
+	const UINT32 colorDepth = config->colorDepth > 0 ? config->colorDepth : 32;
+	const UINT32 tcpConnectTimeoutMs =
+	    config->tcpConnectTimeoutMs > 0 ? config->tcpConnectTimeoutMs : 5000;
+
+	if (!ohos_session_set_string(settings, FreeRDP_ServerHostname, config->serverHostname,
+	                             "ServerHostname", message, messageSize) ||
+	    !ohos_session_set_uint32(settings, FreeRDP_ServerPort, config->serverPort,
+	                             "ServerPort", message, messageSize) ||
+	    !ohos_session_set_string(settings, FreeRDP_Username, config->username, "Username",
+	                             message, messageSize) ||
+	    !ohos_session_set_string(settings, FreeRDP_Password, config->password, "Password",
+	                             message, messageSize) ||
+	    !ohos_session_set_uint32(settings, FreeRDP_DesktopWidth, config->desktopWidth,
+	                             "DesktopWidth", message, messageSize) ||
+	    !ohos_session_set_uint32(settings, FreeRDP_DesktopHeight, config->desktopHeight,
+	                             "DesktopHeight", message, messageSize) ||
+	    !ohos_session_set_uint32(settings, FreeRDP_ColorDepth, colorDepth, "ColorDepth", message,
+	                             messageSize) ||
+	    !ohos_session_set_uint32(settings, FreeRDP_TcpConnectTimeout, tcpConnectTimeoutMs,
+	                             "TcpConnectTimeout", message, messageSize) ||
+	    !ohos_session_set_uint32(settings, FreeRDP_OsMajorType, OSMAJORTYPE_UNIX,
+	                             "OsMajorType", message, messageSize) ||
+	    !ohos_session_set_uint32(settings, FreeRDP_OsMinorType, OSMINORTYPE_NATIVE_WAYLAND,
+	                             "OsMinorType", message, messageSize) ||
+	    !ohos_session_set_bool(settings, FreeRDP_AuthenticationOnly, FALSE,
+	                           "AuthenticationOnly", message, messageSize) ||
+	    !ohos_session_set_bool(settings, FreeRDP_Authentication, TRUE, "Authentication", message,
+	                           messageSize) ||
+	    !ohos_session_set_bool(settings, FreeRDP_SoftwareGdi, TRUE, "SoftwareGdi", message,
+	                           messageSize) ||
+	    !ohos_session_set_bool(settings, FreeRDP_NegotiateSecurityLayer, TRUE,
+	                           "NegotiateSecurityLayer", message, messageSize) ||
+	    !ohos_session_set_bool(settings, FreeRDP_CertificateCallbackPreferPEM, TRUE,
+	                           "CertificateCallbackPreferPEM", message, messageSize) ||
+	    !ohos_session_set_bool(settings, FreeRDP_IgnoreCertificate, config->ignoreCertificate,
+	                           "IgnoreCertificate", message, messageSize) ||
+	    !ohos_session_set_bool(settings, FreeRDP_AutoAcceptCertificate, FALSE,
+	                           "AutoAcceptCertificate", message, messageSize) ||
+	    !ohos_session_set_bool(settings, FreeRDP_AutoDenyCertificate, FALSE,
+	                           "AutoDenyCertificate", message, messageSize))
+		return FALSE;
+
+	if (config->domain && config->domain[0] != '\0' &&
+	    !ohos_session_set_string(settings, FreeRDP_Domain, config->domain, "Domain", message,
+	                             messageSize))
+		return FALSE;
+
+	ohos_session_format_message(
+	    message, messageSize,
+	    "OHOS FreeRDP connection settings applied: target=%s:%" PRIu32
+	    " desktop=%" PRIu32 "x%" PRIu32 " colorDepth=%" PRIu32
+	    " timeoutMs=%" PRIu32 " ignoreCertificate=%d domain=%s",
+	    config->serverHostname, config->serverPort, config->desktopWidth, config->desktopHeight,
+	    colorDepth, tcpConnectTimeoutMs, config->ignoreCertificate ? 1 : 0,
+	    (config->domain && config->domain[0] != '\0') ? "set" : "none");
+	return TRUE;
 }
 
 BOOL freerdp_ohos_session_apply_settings(rdpSettings* settings,

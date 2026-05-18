@@ -17,6 +17,12 @@ Current contents:
   state itself.
 - `ohos_ime.*`: dispatches committed IME text through FreeRDP Unicode keyboard
   events.
+- `ohos_pointer.*`: maps HarmonyOS surface-local pointer events into RDP pointer
+  packets, including viewport-to-desktop coordinate mapping, button flags and
+  wheel direction.
+- `ohos_certificate.*`: owns HarmonyOS certificate-policy parsing and FreeRDP
+  certificate callback decisions for TOFU, strict and ignore modes. The HAP
+  stores app-local certificate files and relays callback logs.
 - `ohos_display.*`: normalizes the XComponent size and sends `disp` monitor
   layout updates.
 - `ohos_clipboard.*`: owns the HarmonyOS Pasteboard backend and `cliprdr` client
@@ -27,11 +33,11 @@ Current contents:
 - `ohos_rdpgfx.*`: owns the HarmonyOS RDPGFX callback bridge, AVC420/AVC444
   capability/surface-command decisions and codec diagnostics. The HAP supplies
   only NativeWindow/AVCodec surface callbacks.
-- `ohos_session_config.*`: owns the HarmonyOS default RDP settings and
-  standard channel request parameters for cliprdr, display-control,
+- `ohos_session_config.*`: owns the HarmonyOS connection defaults, enhanced RDP
+  settings and standard channel request parameters for cliprdr, display-control,
   rdpsnd/OHAudio playback and audin/OHAudio capture. The HAP validation shell
-  passes the selected graphics mode and receives log strings, but does not
-  hard-code those channel parameters.
+  passes host/user input and the selected graphics mode, then receives log
+  strings without hard-coding those FreeRDP/channel parameters.
 
 Planned migration:
 

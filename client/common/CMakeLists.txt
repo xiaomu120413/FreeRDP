@@ -34,10 +34,12 @@ set(SRCS
 
 if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
   list(APPEND SRCS
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_certificate.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_display.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_graphics.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_ime.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_keyboard.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_pointer.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_config.c)
 endif()

@@ -29,10 +29,27 @@ typedef struct
 	UINT32 audioCaptureChannels;
 } FREERDP_OHOS_SESSION_CONFIG;
 
+typedef struct
+{
+	const char* serverHostname;
+	UINT32 serverPort;
+	const char* username;
+	const char* password;
+	const char* domain;
+	UINT32 desktopWidth;
+	UINT32 desktopHeight;
+	UINT32 colorDepth;
+	UINT32 tcpConnectTimeoutMs;
+	BOOL ignoreCertificate;
+} FREERDP_OHOS_CONNECTION_CONFIG;
+
 FREERDP_API FREERDP_OHOS_SESSION_CONFIG freerdp_ohos_session_config_default(void);
 FREERDP_API void
 freerdp_ohos_session_config_from_graphics(const FREERDP_OHOS_GRAPHICS_CONFIG* graphics,
                                           FREERDP_OHOS_SESSION_CONFIG* config);
+FREERDP_API BOOL freerdp_ohos_session_apply_connection_settings(
+    rdpSettings* settings, const FREERDP_OHOS_CONNECTION_CONFIG* config, char* message,
+    size_t messageSize);
 FREERDP_API BOOL freerdp_ohos_session_apply_settings(rdpSettings* settings,
                                                      const FREERDP_OHOS_SESSION_CONFIG* config,
                                                      char* message, size_t messageSize);
