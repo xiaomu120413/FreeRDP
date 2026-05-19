@@ -25,6 +25,7 @@
 #include <database/pasteboard/oh_pasteboard_err_code.h>
 #include <database/udmf/udmf.h>
 #include <database/udmf/udmf_err_code.h>
+#include <database/udmf/udmf_meta.h>
 #include <database/udmf/uds.h>
 #include <multimedia/image_framework/image/pixelmap_native.h>
 
@@ -203,6 +204,106 @@ static void ohos_clipboard_set_error(freerdpOhosClipboard* clipboard, char* erro
 	va_start(ap, format);
 	(void)vsnprintf(errorBuffer, errorBufferSize, format, ap);
 	va_end(ap);
+}
+
+static const char* ohos_clipboard_pasteboard_status_name(int status)
+{
+	switch (status)
+	{
+		case ERR_OK:
+			return "ERR_OK";
+		case ERR_PERMISSION_ERROR:
+			return "ERR_PERMISSION_ERROR";
+		case ERR_INVALID_PARAMETER:
+			return "ERR_INVALID_PARAMETER";
+		case ERR_DEVICE_NOT_SUPPORTED:
+			return "ERR_DEVICE_NOT_SUPPORTED";
+		case ERR_INNER_ERROR:
+			return "ERR_INNER_ERROR";
+		case ERR_BUSY:
+			return "ERR_BUSY";
+		case ERR_PASTEBOARD_COPY_FILE_ERROR:
+			return "ERR_PASTEBOARD_COPY_FILE_ERROR";
+		case ERR_PASTEBOARD_PROGRESS_START_ERROR:
+			return "ERR_PASTEBOARD_PROGRESS_START_ERROR";
+		case ERR_PASTEBOARD_PROGRESS_ABNORMAL:
+			return "ERR_PASTEBOARD_PROGRESS_ABNORMAL";
+		case ERR_PASTEBOARD_GET_DATA_FAILED:
+			return "ERR_PASTEBOARD_GET_DATA_FAILED";
+		default:
+			return "unknown";
+	}
+}
+
+static size_t ohos_clipboard_safe_strlen(const char* value)
+{
+	return value ? strlen(value) : 0;
+}
+
+static void ohos_clipboard_trace_pasteboard_state(freerdpOhosClipboard* clipboard,
+                                                  const char* reason)
+{
+	if (!clipboard || !clipboard->pasteboard)
+		return;
+
+	char source[128] = { 0 };
+	const BOOL hasData = OH_Pasteboard_HasData(clipboard->pasteboard) ? TRUE : FALSE;
+	const BOOL remoteData = OH_Pasteboard_IsRemoteData(clipboard->pasteboard) ? TRUE : FALSE;
+	const int sourceRc =
+	    OH_Pasteboard_GetDataSource(clipboard->pasteboard, source, (unsigned int)sizeof(source));
+	ohos_clipboard_log(clipboard,
+	                   "HarmonyOS Pasteboard state before %s: hasData=%d remoteData=%d "
+	                   "sourceRc=%d source=%s",
+	                   reason ? reason : "unknown", hasData, remoteData, sourceRc,
+	                   source[0] ? source : "none");
+}
+
+static void ohos_clipboard_trace_udmf_data(freerdpOhosClipboard* clipboard, const char* reason,
+                                           OH_UdmfData* data)
+{
+	if (!clipboard || !data)
+		return;
+
+	const int recordCount = OH_UdmfData_GetRecordCount(data);
+	ohos_clipboard_log(clipboard,
+	                   "HarmonyOS Pasteboard data after %s: records=%d local=%d "
+	                   "hasPlain=%d hasHtml=%d hasHyperlink=%d hasFileUri=%d hasPixelMap=%d "
+	                   "hasImage=%d",
+	                   reason ? reason : "unknown", recordCount, OH_UdmfData_IsLocal(data) ? 1 : 0,
+	                   OH_UdmfData_HasType(data, UDMF_META_PLAIN_TEXT) ? 1 : 0,
+	                   OH_UdmfData_HasType(data, UDMF_META_HTML) ? 1 : 0,
+	                   OH_UdmfData_HasType(data, UDMF_META_HYPERLINK) ? 1 : 0,
+	                   OH_UdmfData_HasType(data, UDMF_META_GENERAL_FILE_URI) ? 1 : 0,
+	                   OH_UdmfData_HasType(data, UDMF_META_OPENHARMONY_PIXEL_MAP) ? 1 : 0,
+	                   OH_UdmfData_HasType(data, UDMF_META_IMAGE) ? 1 : 0);
+}
+
+static OH_UdmfData* ohos_clipboard_get_pasteboard_data(freerdpOhosClipboard* clipboard,
+                                                       const char* reason, int* outStatus)
+{
+	int status = ERR_OK;
+	OH_UdmfData* data = NULL;
+
+	if (outStatus)
+		*outStatus = ERR_OK;
+	if (!clipboard || !clipboard->pasteboard)
+	{
+		if (outStatus)
+			*outStatus = ERR_INVALID_PARAMETER;
+		return NULL;
+	}
+
+	ohos_clipboard_trace_pasteboard_state(clipboard, reason);
+	data = OH_Pasteboard_GetData(clipboard->pasteboard, &status);
+	if (outStatus)
+		*outStatus = status;
+	ohos_clipboard_log(clipboard,
+	                   "HarmonyOS Pasteboard GetData after %s: status=%d(%s) data=%p",
+	                   reason ? reason : "unknown", status,
+	                   ohos_clipboard_pasteboard_status_name(status), (void*)data);
+	if (status == ERR_OK && data)
+		ohos_clipboard_trace_udmf_data(clipboard, reason, data);
+	return data;
 }
 
 static void ohos_clipboard_registry_add(freerdpOhosClipboard* clipboard)
@@ -2206,12 +2307,13 @@ static BOOL ohos_clipboard_read_plain_text(freerdpOhosClipboard* clipboard, char
 		return FALSE;
 	}
 
-	data = OH_Pasteboard_GetData(clipboard->pasteboard, &status);
+	data = ohos_clipboard_get_pasteboard_data(clipboard, "read plain text", &status);
 	if (status != ERR_OK || !data)
 	{
 		clipboard->lastError = (UINT32)status;
 		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
-		                         "OH_Pasteboard_GetData status=%d", status);
+		                         "OH_Pasteboard_GetData status=%d(%s)", status,
+		                         ohos_clipboard_pasteboard_status_name(status));
 		return FALSE;
 	}
 
@@ -2287,12 +2389,13 @@ static BOOL ohos_clipboard_read_html(freerdpOhosClipboard* clipboard, char** out
 		return FALSE;
 	}
 
-	data = OH_Pasteboard_GetData(clipboard->pasteboard, &status);
+	data = ohos_clipboard_get_pasteboard_data(clipboard, "read html", &status);
 	if (status != ERR_OK || !data)
 	{
 		clipboard->lastError = (UINT32)status;
 		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
-		                         "OH_Pasteboard_GetData status=%d", status);
+		                         "OH_Pasteboard_GetData status=%d(%s)", status,
+		                         ohos_clipboard_pasteboard_status_name(status));
 		return FALSE;
 	}
 
@@ -2422,12 +2525,13 @@ static BOOL ohos_clipboard_read_uri(freerdpOhosClipboard* clipboard, char** outU
 		return FALSE;
 	}
 
-	data = OH_Pasteboard_GetData(clipboard->pasteboard, &status);
+	data = ohos_clipboard_get_pasteboard_data(clipboard, "read uri", &status);
 	if (status != ERR_OK || !data)
 	{
 		clipboard->lastError = (UINT32)status;
 		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
-		                         "OH_Pasteboard_GetData status=%d", status);
+		                         "OH_Pasteboard_GetData status=%d(%s)", status,
+		                         ohos_clipboard_pasteboard_status_name(status));
 		return FALSE;
 	}
 
@@ -3022,6 +3126,10 @@ static BOOL ohos_clipboard_write_plain_text(freerdpOhosClipboard* clipboard, con
 	pthread_mutex_unlock(&clipboard->lock);
 
 	rc = OH_Pasteboard_SetData(clipboard->pasteboard, data);
+	ohos_clipboard_log(clipboard,
+	                   "HarmonyOS Pasteboard SetData plain text: status=%d(%s) bytes=%zu",
+	                   rc, ohos_clipboard_pasteboard_status_name(rc),
+	                   ohos_clipboard_safe_strlen(text));
 	if (rc != ERR_OK)
 	{
 		pthread_mutex_lock(&clipboard->lock);
@@ -3109,6 +3217,12 @@ static BOOL ohos_clipboard_write_html(freerdpOhosClipboard* clipboard, const cha
 	pthread_mutex_unlock(&clipboard->lock);
 
 	rc = OH_Pasteboard_SetData(clipboard->pasteboard, data);
+	ohos_clipboard_log(clipboard,
+	                   "HarmonyOS Pasteboard SetData html: status=%d(%s) htmlBytes=%zu "
+	                   "plainBytes=%zu",
+	                   rc, ohos_clipboard_pasteboard_status_name(rc),
+	                   ohos_clipboard_safe_strlen(htmlValue),
+	                   ohos_clipboard_safe_strlen(plainValue));
 	if (rc != ERR_OK)
 	{
 		pthread_mutex_lock(&clipboard->lock);
@@ -3224,6 +3338,10 @@ static BOOL ohos_clipboard_write_uri(freerdpOhosClipboard* clipboard, const char
 	pthread_mutex_unlock(&clipboard->lock);
 
 	rc = OH_Pasteboard_SetData(clipboard->pasteboard, data);
+	ohos_clipboard_log(clipboard,
+	                   "HarmonyOS Pasteboard SetData uri: status=%d(%s) bytes=%zu kind=%s", rc,
+	                   ohos_clipboard_pasteboard_status_name(rc),
+	                   ohos_clipboard_safe_strlen(uriValue), ohos_clipboard_uri_kind(uriValue));
 	if (rc != ERR_OK)
 	{
 		pthread_mutex_lock(&clipboard->lock);
@@ -3358,6 +3476,12 @@ static BOOL ohos_clipboard_write_pixelmap_with_uri(freerdpOhosClipboard* clipboa
 	pthread_mutex_unlock(&clipboard->lock);
 
 	rc = OH_Pasteboard_SetData(clipboard->pasteboard, data);
+	ohos_clipboard_log(clipboard,
+	                   "HarmonyOS Pasteboard SetData pixelmap: status=%d(%s) size=%" PRIu32
+	                   "x%" PRIu32 " sourceBytes=%" PRIu32 " includeFileUri=%d uriBytes=%zu",
+	                   rc, ohos_clipboard_pasteboard_status_name(rc), width, height, sourceBytes,
+	                   includeFileUri,
+	                   includeFileUri ? ohos_clipboard_safe_strlen(fileUriValue) : 0);
 	if (rc != ERR_OK)
 	{
 		pthread_mutex_lock(&clipboard->lock);
@@ -3473,6 +3597,22 @@ static UINT ohos_clipboard_send_local_format_list(freerdpOhosClipboard* clipboar
 
 	if (hasUriImageFile && uriImageFormatId == 0U)
 		uriImageFormatId = localImageFileFormatId;
+
+	ohos_clipboard_log(clipboard,
+	                   "HarmonyOS Pasteboard format probe: reason=%s text=%d textBytes=%zu "
+	                   "html=%d htmlBytes=%zu htmlPlainBytes=%zu uri=%d uriBytes=%zu "
+	                   "uriKind=%s uriImage=%d file=%d fileName=%s fileBytes=%" PRIu64
+	                   " imageFormat=%s error=%s",
+	                   reason ? reason : "unknown", hasText, ohos_clipboard_safe_strlen(text),
+	                   hasHtml, ohos_clipboard_safe_strlen(html),
+	                   ohos_clipboard_safe_strlen(htmlPlain), hasUri,
+	                   ohos_clipboard_safe_strlen(uri), ohos_clipboard_uri_kind(uri),
+	                   hasUriImage, hasUriImageFile,
+	                   localImageFileName ? localImageFileName : "none", localImageFileSize,
+	                   ohos_clipboard_image_format_name_from_id(uriImageFormatId)
+	                       ? ohos_clipboard_image_format_name_from_id(uriImageFormatId)
+	                       : "none",
+	                   error[0] ? error : "none");
 
 	if (!cliprdr || !cliprdr->ClientFormatList)
 	{
@@ -4599,6 +4739,17 @@ static void ohos_clipboard_handle_pasteboard_changed(freerdpOhosClipboard* clipb
 		return;
 
 	++clipboard->pasteboardChangeCount;
+	UINT32 ignoreLocalChanges = 0;
+	UINT64 ignoreLocalChangesUntil = 0;
+	pthread_mutex_lock(&clipboard->lock);
+	ignoreLocalChanges = clipboard->ignoreLocalChanges;
+	ignoreLocalChangesUntil = clipboard->ignoreLocalChangesUntil;
+	pthread_mutex_unlock(&clipboard->lock);
+	ohos_clipboard_log(clipboard,
+	                   "HarmonyOS Pasteboard change observed: type=%d changes=%" PRIu64
+	                   " ignoreLocalChanges=%" PRIu32 " ignoreUntil=%" PRIu64,
+	                   type, clipboard->pasteboardChangeCount, ignoreLocalChanges,
+	                   ignoreLocalChangesUntil);
 	ohos_clipboard_note_local_clipboard_changed(clipboard);
 
 	pthread_mutex_lock(&clipboard->lock);
@@ -4693,12 +4844,15 @@ static void ohos_clipboard_create_pasteboard(freerdpOhosClipboard* clipboard)
 	if (rc == ERR_OK)
 	{
 		clipboard->pasteboardSubscribed = TRUE;
-		ohos_clipboard_log(clipboard, "HarmonyOS Pasteboard observer subscribed");
+		ohos_clipboard_log(clipboard,
+		                   "HarmonyOS Pasteboard observer subscribed: rc=%d(%s)", rc,
+		                   ohos_clipboard_pasteboard_status_name(rc));
 	}
 	else
 	{
 		clipboard->lastError = (UINT32)rc;
-		ohos_clipboard_log(clipboard, "HarmonyOS Pasteboard subscribe warning: %d", rc);
+		ohos_clipboard_log(clipboard, "HarmonyOS Pasteboard subscribe warning: %d(%s)", rc,
+		                   ohos_clipboard_pasteboard_status_name(rc));
 	}
 }
 
