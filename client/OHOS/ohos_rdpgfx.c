@@ -639,6 +639,7 @@ static BOOL ohos_rdpgfx_record_avc444_gpu_candidate(freerdpOhosRdpgfxBridge* bri
 	{
 		FREERDP_OHOS_RDPGFX_AVC444_COMMAND_INFO info = { 0 };
 		BOOL callbackReady = FALSE;
+		UINT64 callbackReadyCount = 0;
 		info.codecId = command->codecId;
 		info.surfaceId = command->surfaceId;
 		info.left = command->left;
@@ -667,7 +668,7 @@ static BOOL ohos_rdpgfx_record_avc444_gpu_candidate(freerdpOhosRdpgfxBridge* bri
 		bridge->avc444GpuCallbacks++;
 		if (callbackReady)
 		{
-			bridge->avc444GpuCallbackReady++;
+			callbackReadyCount = ++bridge->avc444GpuCallbackReady;
 			bridge->avc444CompositorSelfTestPassed = TRUE;
 			bridge->avc444SuppressGdiAllowed = TRUE;
 		}
@@ -675,14 +676,17 @@ static BOOL ohos_rdpgfx_record_avc444_gpu_candidate(freerdpOhosRdpgfxBridge* bri
 
 		if (callbackReady)
 		{
-			ohos_rdpgfx_log(
-			    bridge,
-			    "AVC444 GPU compositor handled command; suppressing FreeRDP native GDI "
-			    "for this surface command: codec=%s surface=%" PRIu32
-			    " frame=%" PRIu32 " LC=%" PRIu32 " stream1Bytes=%" PRIu32
-			    " stream2Bytes=%" PRIu32,
-			    freerdp_ohos_rdpgfx_codec_name(command->codecId), command->surfaceId, frameId,
-			    lc, stream1Bytes, stream2Bytes);
+			if (ohos_rdpgfx_should_log_counter(callbackReadyCount))
+			{
+				ohos_rdpgfx_log(
+				    bridge,
+				    "AVC444 GPU compositor handled command; suppressing FreeRDP native GDI "
+				    "for this surface command: codec=%s surface=%" PRIu32
+				    " frame=%" PRIu32 " LC=%" PRIu32 " stream1Bytes=%" PRIu32
+				    " stream2Bytes=%" PRIu32 " handled=%" PRIu64,
+				    freerdp_ohos_rdpgfx_codec_name(command->codecId), command->surfaceId,
+				    frameId, lc, stream1Bytes, stream2Bytes, callbackReadyCount);
+			}
 			return TRUE;
 		}
 	}
