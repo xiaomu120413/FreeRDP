@@ -244,7 +244,9 @@ BOOL freerdp_ohos_session_apply_settings(rdpSettings* settings,
 	    !ohos_session_set_bool(settings, FreeRDP_RedirectClipboard, config->clipboard,
 	                           "RedirectClipboard", message, messageSize) ||
 	    !ohos_session_set_uint32(settings, FreeRDP_ClipboardFeatureMask,
-	                             CLIPRDR_FLAG_LOCAL_TO_REMOTE | CLIPRDR_FLAG_REMOTE_TO_LOCAL,
+	                             CLIPRDR_FLAG_LOCAL_TO_REMOTE | CLIPRDR_FLAG_REMOTE_TO_LOCAL |
+	                                 CLIPRDR_FLAG_LOCAL_TO_REMOTE_FILES |
+	                                 CLIPRDR_FLAG_REMOTE_TO_LOCAL_FILES,
 	                             "ClipboardFeatureMask", message, messageSize) ||
 	    !ohos_session_set_bool(settings, FreeRDP_DeviceRedirection, TRUE, "DeviceRedirection",
 	                           message, messageSize) ||

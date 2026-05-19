@@ -95,6 +95,11 @@ size_t freerdp_ohos_graphics_fallback_modes(const char* requestedMode, const cha
 	if (config.mode == FREERDP_OHOS_GRAPHICS_MODE_RDPGFX_H264)
 	{
 		modes[0] = g_mode_rdpgfx_h264;
+		if (capacity > 1)
+		{
+			modes[1] = g_mode_gdi;
+			return 2;
+		}
 		return 1;
 	}
 
@@ -143,7 +148,9 @@ BOOL freerdp_ohos_graphics_should_retry_fallback(BOOL sessionFailed, BOOL attemp
                                                  const char* failedMode, size_t attemptIndex,
                                                  size_t attemptCount, const char* message)
 {
-	if (!sessionFailed || attemptConnected || attemptIndex + 1U >= attemptCount)
+	(void)attemptConnected;
+
+	if (!sessionFailed || attemptIndex + 1U >= attemptCount)
 		return FALSE;
 	if (ohos_graphics_contains_ci(failedMode, g_mode_gdi))
 		return FALSE;
