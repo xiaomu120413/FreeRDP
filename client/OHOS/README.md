@@ -31,17 +31,17 @@ Current contents:
 - `ohos_graphics.*`: owns HarmonyOS graphics-mode parsing, fallback policy and
   H.264 desktop alignment helpers.
 - `ohos_avc_surface.*`: owns HarmonyOS NativeImage/GLES decode surface creation
-  for AVC streams. The HAP keeps only opaque lifecycle wiring and passes the
-  resulting NativeWindow handles back into the FreeRDP AVCodec backend. AVC444
-  targets also carry the owning NativeImage and EGL handles so the OHOS
-  compositor can update and sample the external textures in the same context.
+  for AVC420 direct surface output. The HAP keeps only opaque lifecycle wiring
+  and passes the resulting NativeWindow handles back into the FreeRDP AVCodec
+  backend. Negotiated AVC444 is decoded and composed by FreeRDP's native
+  YUV420-to-YUV444 path rather than by sampling NativeImage display surfaces.
 - `ohos_compositor.*`: owns HarmonyOS render-target state, AVC420 direct
-  Surface route state, AVC444 decode-surface registration state and graphics
-  diagnostics. It is the landing point for the later GPU compositor; the HAP
-  should only pass the XComponent NativeWindow and lifecycle notifications.
-- `ohos_rdpgfx.*`: owns the HarmonyOS RDPGFX callback bridge, AVC420/AVC444
-  capability/surface-command decisions and codec diagnostics. The HAP supplies
-  only NativeWindow/AVCodec surface callbacks.
+  Surface route state and graphics diagnostics. It is the landing point for a
+  later raw-plane GPU compositor; the HAP should only pass the XComponent
+  NativeWindow and lifecycle notifications.
+- `ohos_rdpgfx.*`: owns the HarmonyOS RDPGFX callback bridge, AVC420 surface
+  decisions, AVC444 negotiation diagnostics and codec diagnostics. The HAP
+  supplies only NativeWindow/AVCodec surface callbacks.
 - `ohos_session_config.*`: owns the HarmonyOS connection defaults, enhanced RDP
   settings and standard channel request parameters for cliprdr, display-control,
   rdpsnd/OHAudio playback and audin/OHAudio capture. The HAP validation shell
@@ -50,7 +50,7 @@ Current contents:
 
 Planned migration:
 
-- GPU composition and multi-surface AVC444 routing beyond the current
-  NativeImage surface allocation helpers.
+- Optional raw-plane GPU acceleration for AVC444. The current supported AVC444
+  route is FreeRDP native H.264 decode plus YUV420-to-YUV444 composition.
 - A stable public include/install story for the OHOS helper headers if this
   branch becomes a reusable SDK rather than a repo-local port.

@@ -208,7 +208,7 @@ BOOL freerdp_ohos_session_apply_settings(rdpSettings* settings,
 
 	const BOOL h264 = config->graphicsPipeline && config->h264;
 	const BOOL avc420 = h264;
-	const BOOL avc444 = FALSE;
+	const BOOL avc444 = h264;
 	if (!ohos_session_set_bool(settings, FreeRDP_SupportDynamicChannels, TRUE,
 	                           "SupportDynamicChannels", message, messageSize) ||
 	    !ohos_session_set_bool(settings, FreeRDP_SupportDisplayControl, config->displayControl,

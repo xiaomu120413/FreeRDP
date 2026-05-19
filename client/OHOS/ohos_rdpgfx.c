@@ -595,9 +595,9 @@ static UINT ohos_rdpgfx_caps_confirm(RdpgfxClientContext* context,
 				                                                    capsSet->flags))
 				{
 					ohos_rdpgfx_log(bridge,
-					                "RDPGFX negotiated AVC444 surface mode: version=0x%08" PRIX32
-					                " flags=0x%08" PRIX32
-					                "; AVC444 primary stream will use the AVC420 output surface",
+					                "RDPGFX negotiated AVC444 native composition mode: version=0x%08"
+					                PRIX32 " flags=0x%08" PRIX32
+					                       "; using FreeRDP YUV420CombineToYUV444 path",
 					                capsSet->version, capsSet->flags);
 				}
 				else

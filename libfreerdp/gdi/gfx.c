@@ -1020,23 +1020,9 @@ static UINT gdi_SurfaceCommand_AVC444(rdpGdi* gdi, RdpgfxClientContext* context,
 #if defined(WITH_OHOS_AVCODEC)
 	if (h264_context_ohos_avc444_surface_route_enabled(surface->width, surface->height))
 	{
-		rc = gdi_SurfaceCommand_AVC444_OhosSurfaces(surface, bs, avc1, avc2, meta1, meta2,
-		                                           cmd->codecId);
-		if (rc == 0)
-			goto surfaceDecoded;
-		WLog_WARN(TAG, "OHOS AVC444 GPU compositor route unavailable rc=%" PRId32
-		                "; using CPU/GDI fallback",
-		          rc);
-	}
-	else
-	{
-		rc = gdi_SurfaceCommand_AVC444_PrimaryOhosSurface(surface, bs, avc1, meta1);
-		if (rc == 0)
-			return CHANNEL_RC_OK;
-		else if ((rc != -1102) && (rc != -1104) && (rc != H264_OHOS_AVCODEC_FALLBACK_RC))
-			WLog_WARN(TAG, "OHOS AVC444 primary surface route unavailable rc=%" PRId32
-			                "; using CPU/GDI fallback",
-			          rc);
+		WLog_WARN(TAG,
+		          "OHOS AVC444 NativeImage surface route is disabled; using FreeRDP native "
+		          "YUV420CombineToYUV444 composition");
 	}
 #endif
 
@@ -1062,6 +1048,16 @@ static UINT gdi_SurfaceCommand_AVC444(rdpGdi* gdi, RdpgfxClientContext* context,
 		if (!h264_context_reset(surface->h264, surface->width, surface->height))
 			return ERROR_INTERNAL_ERROR;
 	}
+#if defined(WITH_OHOS_AVCODEC)
+	if (!surface->h264->ohosAvcodecRuntimeDisabled)
+	{
+		WLog_INFO(TAG,
+		          "OHOS AVC444 native composition uses FreeRDP software H264 decoder for "
+		          "synchronous YUV444 combine");
+		if (!h264_context_fallback_ohos_avcodec_to_software(surface->h264))
+			return ERROR_INTERNAL_ERROR;
+	}
+#endif
 
 	rc = avc444_decompress(surface->h264, bs->LC, meta1->regionRects, meta1->numRegionRects,
 	                       avc1->data, avc1->length, meta2->regionRects, meta2->numRegionRects,
@@ -1074,9 +1070,6 @@ static UINT gdi_SurfaceCommand_AVC444(rdpGdi* gdi, RdpgfxClientContext* context,
 		return CHANNEL_RC_OK;
 	}
 
-#if defined(WITH_OHOS_AVCODEC)
-surfaceDecoded:
-#endif
 	for (UINT32 i = 0; i < meta1->numRegionRects; i++)
 	{
 		if (!region16_union_rect(&(surface->invalidRegion), &(surface->invalidRegion),
