@@ -4,9 +4,8 @@
 #include <stddef.h>
 
 #include <freerdp/api.h>
+#include <freerdp/types.h>
 #include <winpr/wtypes.h>
-
-#include "ohos_avc_surface.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -21,8 +20,7 @@ typedef enum
 {
 	FREERDP_OHOS_COMPOSITOR_MODE_NONE = 0,
 	FREERDP_OHOS_COMPOSITOR_MODE_RGBA = 1,
-	FREERDP_OHOS_COMPOSITOR_MODE_AVC420_SURFACE = 2,
-	FREERDP_OHOS_COMPOSITOR_MODE_AVC444_GPU = 3
+	FREERDP_OHOS_COMPOSITOR_MODE_AVC420_SURFACE = 2
 } FREERDP_OHOS_COMPOSITOR_MODE;
 
 typedef struct
@@ -53,12 +51,6 @@ FREERDP_API BOOL freerdp_ohos_compositor_begin_avc420_surface(
     freerdpOhosCompositor* compositor, char* message, size_t messageSize);
 FREERDP_API void freerdp_ohos_compositor_end_avc420_surface(
     freerdpOhosCompositor* compositor);
-FREERDP_API BOOL freerdp_ohos_compositor_set_avc444_decode_surfaces(
-    freerdpOhosCompositor* compositor, const FREERDP_OHOS_AVC444_SURFACE_TARGETS* targets,
-    BOOL enabled, char* message, size_t messageSize);
-FREERDP_API void freerdp_ohos_compositor_notify_avc444_frame(
-    freerdpOhosCompositor* compositor, UINT32 surfaceId, UINT32 width, UINT32 height,
-    UINT32 op, UINT32 codecId);
 FREERDP_API const char* freerdp_ohos_compositor_get_diagnostics(
     freerdpOhosCompositor* compositor);
 

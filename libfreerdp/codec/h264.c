@@ -583,67 +583,6 @@ static BOOL avc444_process_rects(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
 	                              nrRects));
 }
 
-static BOOL avc444_decode_surface_stream(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize)
-{
-	INT32 status = 0;
-
-	if (!h264 || !pSrcData || (SrcSize == 0) || !h264->subsystem || !h264->subsystem->Decompress ||
-	    !h264->ohosSurfaceModeAllowed)
-		return FALSE;
-
-	h264->surfaceRendered = FALSE;
-	status = h264->subsystem->Decompress(h264, pSrcData, SrcSize);
-	if (status == H264_OHOS_AVCODEC_FALLBACK_RC)
-	{
-		WLog_Print(h264->log, WLOG_WARN,
-		           "OHOS AVCodec AVC444 surface decode requested software fallback");
-		if (!h264_context_fallback_ohos_avcodec_to_software(h264))
-			return FALSE;
-		return FALSE;
-	}
-	if (status < 0)
-		return FALSE;
-
-	return h264->surfaceRendered;
-}
-
-INT32 avc444_decompress_to_ohos_surfaces(H264_CONTEXT* luma, H264_CONTEXT* chroma, BYTE op,
-                                         const RECTANGLE_16* regionRects, UINT32 numRegionRects,
-                                         const BYTE* pSrcData, UINT32 SrcSize,
-                                         const RECTANGLE_16* auxRegionRects,
-                                         UINT32 numAuxRegionRect, const BYTE* pAuxSrcData,
-                                         UINT32 AuxSrcSize, UINT32 nDstWidth, UINT32 nDstHeight)
-{
-	if (!luma || !chroma || !regionRects || !pSrcData || luma->Compressor || chroma->Compressor)
-		return -1001;
-
-	if (!areRectsValid(nDstWidth, nDstHeight, regionRects, numRegionRects))
-		return -1013;
-	if (!areRectsValid(nDstWidth, nDstHeight, auxRegionRects, numAuxRegionRect))
-		return -1014;
-
-	switch (op)
-	{
-		case 0: /* YUV420 in stream 1, chroma420 in stream 2 */
-			if (!pAuxSrcData || (AuxSrcSize == 0))
-				return -1002;
-			if (!avc444_decode_surface_stream(luma, pSrcData, SrcSize))
-				return -1;
-			if (!avc444_decode_surface_stream(chroma, pAuxSrcData, AuxSrcSize))
-				return -2;
-			return 0;
-
-		case 1: /* YUV420 in stream 1 */
-			return avc444_decode_surface_stream(luma, pSrcData, SrcSize) ? 0 : -1;
-
-		case 2: /* Chroma420 in stream 1 */
-			return avc444_decode_surface_stream(chroma, pSrcData, SrcSize) ? 0 : -2;
-
-		default:
-			return -1003;
-	}
-}
-
 #if defined(AVC444_FRAME_STAT)
 static UINT64 op1 = 0;
 static double op1sum = 0;

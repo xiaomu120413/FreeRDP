@@ -843,136 +843,6 @@ fail:
 #endif
 }
 
-#if defined(WITH_GFX_H264) && defined(WITH_OHOS_AVCODEC)
-static BOOL gdi_ensure_ohos_surface_h264_context(H264_CONTEXT** ph264, UINT32 width,
-                                                 UINT32 height,
-                                                 H264_OHOS_SURFACE_TARGET target)
-{
-	BOOL changed = FALSE;
-
-	if (!ph264 || (width == 0) || (height == 0))
-		return FALSE;
-
-	if (!*ph264)
-	{
-		*ph264 = h264_context_new(FALSE);
-		if (!*ph264)
-			return FALSE;
-		changed = TRUE;
-	}
-
-	changed |= h264_context_set_ohos_surface_mode_allowed(*ph264, TRUE);
-	changed |= h264_context_set_ohos_surface_target(*ph264, target);
-	changed |= ((*ph264)->width != width) || ((*ph264)->height != height);
-
-	if (changed && !h264_context_reset(*ph264, width, height))
-	{
-		h264_context_free(*ph264);
-		*ph264 = NULL;
-		return FALSE;
-	}
-
-	return TRUE;
-}
-
-static INT32 gdi_SurfaceCommand_AVC444_OhosSurfaces(gdiGfxSurface* surface,
-                                                    const RDPGFX_AVC444_BITMAP_STREAM* bs,
-                                                    const RDPGFX_AVC420_BITMAP_STREAM* avc1,
-                                                    const RDPGFX_AVC420_BITMAP_STREAM* avc2,
-                                                    const RDPGFX_H264_METABLOCK* meta1,
-                                                    const RDPGFX_H264_METABLOCK* meta2,
-                                                    UINT32 codecId)
-{
-	INT32 rc = -1;
-	static BOOL routeLogged = FALSE;
-
-	if (!surface || !bs || !avc1 || !avc2 || !meta1 || !meta2)
-		return -1001;
-
-	if (!h264_context_ohos_avc444_surface_route_enabled(surface->width, surface->height))
-		return -1002;
-
-	if (!gdi_ensure_ohos_surface_h264_context(&surface->avc444LumaH264, surface->width,
-	                                          surface->height, H264_OHOS_SURFACE_AVC444_LUMA))
-		return -1003;
-	if (!gdi_ensure_ohos_surface_h264_context(&surface->avc444ChromaH264, surface->width,
-	                                          surface->height, H264_OHOS_SURFACE_AVC444_CHROMA))
-		return -1004;
-
-	rc = avc444_decompress_to_ohos_surfaces(
-	    surface->avc444LumaH264, surface->avc444ChromaH264, bs->LC, meta1->regionRects,
-	    meta1->numRegionRects, avc1->data, avc1->length, meta2->regionRects,
-	    meta2->numRegionRects, avc2->data, avc2->length, surface->width, surface->height);
-	if (rc == 0 && !routeLogged)
-	{
-		WLog_INFO(TAG, "OHOS AVC444 surface route decoded first frame surfaceId=%" PRIu16
-		               " size=%" PRIu32 "x%" PRIu32,
-		          surface->surfaceId, surface->width, surface->height);
-		routeLogged = TRUE;
-	}
-	if (rc == 0)
-		h264_context_ohos_avc444_notify_frame(surface->surfaceId, surface->width, surface->height,
-		                                      bs->LC, codecId);
-	return rc;
-}
-
-static INT32 gdi_SurfaceCommand_AVC444_PrimaryOhosSurface(
-    gdiGfxSurface* surface, const RDPGFX_AVC444_BITMAP_STREAM* bs,
-    const RDPGFX_AVC420_BITMAP_STREAM* avc1, const RDPGFX_H264_METABLOCK* meta1)
-{
-	INT32 rc = 0;
-	static BOOL primaryRouteLogged = FALSE;
-	static BOOL chromaOnlySkipLogged = FALSE;
-
-	if (!surface || !bs || !avc1 || !meta1)
-		return -1101;
-
-	if (!h264_context_ohos_output_surface_available(surface->width, surface->height))
-		return -1106;
-
-	if (bs->LC == 2)
-	{
-		if (surface->h264 && surface->h264->ohosSurfaceModeAllowed &&
-		    !surface->h264->ohosAvcodecRuntimeDisabled)
-		{
-			if (!chromaOnlySkipLogged)
-			{
-				WLog_INFO(TAG,
-				          "OHOS AVCodec AVC444 primary surface route skipping chroma-only update");
-				chromaOnlySkipLogged = TRUE;
-			}
-			return 0;
-		}
-		return -1102;
-	}
-
-	if (!avc1->data || (avc1->length == 0))
-		return -1103;
-
-	if (!gdi_ensure_ohos_surface_h264_context(&surface->h264, surface->width, surface->height,
-	                                          H264_OHOS_SURFACE_DEFAULT))
-		return -1104;
-
-	rc = avc420_decompress(surface->h264, avc1->data, avc1->length, surface->data,
-	                       surface->format, surface->scanline, surface->width, surface->height,
-	                       meta1->regionRects, meta1->numRegionRects);
-	if (rc < 0)
-		return rc;
-
-	if (!surface->h264->surfaceRendered)
-		return -1105;
-
-	if (!primaryRouteLogged)
-	{
-		WLog_INFO(TAG,
-		          "OHOS AVCodec AVC444 primary AVC420 stream rendered to output surface; "
-		          "bypassing CPU AVC444 composition");
-		primaryRouteLogged = TRUE;
-	}
-	return 0;
-}
-#endif
-
 /**
  * Function description
  *
@@ -1017,15 +887,6 @@ static UINT gdi_SurfaceCommand_AVC444(rdpGdi* gdi, RdpgfxClientContext* context,
 	meta1 = &avc1->meta;
 	meta2 = &avc2->meta;
 
-#if defined(WITH_OHOS_AVCODEC)
-	if (h264_context_ohos_avc444_surface_route_enabled(surface->width, surface->height))
-	{
-		WLog_WARN(TAG,
-		          "OHOS AVC444 NativeImage surface route is disabled; using FreeRDP native "
-		          "YUV420CombineToYUV444 composition");
-	}
-#endif
-
 	if (!surface->h264)
 	{
 		surface->h264 = h264_context_new(FALSE);
@@ -1068,6 +929,19 @@ static UINT gdi_SurfaceCommand_AVC444(rdpGdi* gdi, RdpgfxClientContext* context,
 	{
 		WLog_WARN(TAG, "avc444_decompress failure: %" PRId32 ", ignoring update.", rc);
 		return CHANNEL_RC_OK;
+	}
+	{
+		static UINT64 avc444NativeFrames = 0;
+		const UINT64 frame = ++avc444NativeFrames;
+		if ((frame <= 6) || ((frame % 120) == 0))
+		{
+			WLog_INFO(TAG,
+			          "OHOS AVC444 route=freerdp-native-gdi avc444_decompress success=%" PRIu64
+			          " surfaceId=%" PRIu16 " LC=%" PRIu32 " codec=%" PRIu32
+			          " size=%" PRIu32 "x%" PRIu32 " rects=%" PRIu32 "/%" PRIu32,
+			          frame, surface->surfaceId, bs->LC, cmd->codecId, surface->width,
+			          surface->height, meta1->numRegionRects, meta2->numRegionRects);
+		}
 	}
 
 	for (UINT32 i = 0; i < meta1->numRegionRects; i++)
@@ -1589,8 +1463,6 @@ static UINT gdi_DeleteSurface(RdpgfxClientContext* context,
 
 #ifdef WITH_GFX_H264
 		h264_context_free(surface->h264);
-		h264_context_free(surface->avc444LumaH264);
-		h264_context_free(surface->avc444ChromaH264);
 #endif
 #if defined(WITH_GFX_AV1)
 		freerdp_av1_context_free(surface->av1);

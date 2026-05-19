@@ -30,15 +30,10 @@ Current contents:
   lifecycle wiring.
 - `ohos_graphics.*`: owns HarmonyOS graphics-mode parsing, fallback policy and
   H.264 desktop alignment helpers.
-- `ohos_avc_surface.*`: owns HarmonyOS NativeImage/GLES decode surface creation
-  for AVC420 direct surface output. The HAP keeps only opaque lifecycle wiring
-  and passes the resulting NativeWindow handles back into the FreeRDP AVCodec
-  backend. Negotiated AVC444 is decoded and composed by FreeRDP's native
-  YUV420-to-YUV444 path rather than by sampling NativeImage display surfaces.
 - `ohos_compositor.*`: owns HarmonyOS render-target state, AVC420 direct
-  Surface route state and graphics diagnostics. It is the landing point for a
-  later raw-plane GPU compositor; the HAP should only pass the XComponent
-  NativeWindow and lifecycle notifications.
+  Surface route state and graphics diagnostics. AVC444 is intentionally routed
+  through FreeRDP native `avc444_decompress()` into the GDI/RGB surface before
+  the existing OHOS display path presents it.
 - `ohos_rdpgfx.*`: owns the HarmonyOS RDPGFX callback bridge, AVC420 surface
   decisions, AVC444 negotiation diagnostics and codec diagnostics. The HAP
   supplies only NativeWindow/AVCodec surface callbacks.
@@ -50,7 +45,5 @@ Current contents:
 
 Planned migration:
 
-- Optional raw-plane GPU acceleration for AVC444. The current supported AVC444
-  route is FreeRDP native H.264 decode plus YUV420-to-YUV444 composition.
 - A stable public include/install story for the OHOS helper headers if this
   branch becomes a reusable SDK rather than a repo-local port.

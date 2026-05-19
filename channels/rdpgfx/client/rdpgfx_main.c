@@ -498,7 +498,7 @@ static UINT rdpgfx_recv_caps_confirm_pdu(GENERIC_CHANNEL_CALLBACK* callback, wSt
 	if (requireAvc420 && !avc420)
 	{
 		WLog_Print(gfx->base.log, WLOG_ERROR,
-		           "Server did not confirm required RDPGFX AVC420 surface mode; refusing buffer/AVC444 fallback");
+		           "Server did not confirm requested RDPGFX AVC420 surface mode while AVC444 is disabled");
 		if (gfx->rdpcontext)
 			freerdp_set_last_error(gfx->rdpcontext, ERROR_NOT_SUPPORTED);
 		return ERROR_NOT_SUPPORTED;
