@@ -43,11 +43,6 @@ extern "C"
 	                                        BYTE** WINPR_RESTRICT ppDstData,
 	                                        UINT32* WINPR_RESTRICT pDstSize);
 
-	typedef enum
-	{
-		H264_OHOS_SURFACE_DEFAULT = 0
-	} H264_OHOS_SURFACE_TARGET;
-
 	typedef void (*pfnH264OhosAvcodecFallbackCallback)(const char* reason, void* userData);
 
 	struct S_H264_CONTEXT_SUBSYSTEM
@@ -75,7 +70,6 @@ extern "C"
 		UINT32 NumberOfThreads;
 		BOOL ohosSurfaceModeAllowed;
 		BOOL ohosAvcodecRuntimeDisabled;
-		H264_OHOS_SURFACE_TARGET ohosSurfaceTarget;
 		BOOL surfaceRendered;
 
 		UINT32 iStride[3];
@@ -106,9 +100,6 @@ extern "C"
 
 	FREERDP_LOCAL BOOL h264_context_set_ohos_surface_mode_allowed(H264_CONTEXT* h264,
 	                                                              BOOL allowed);
-
-	FREERDP_LOCAL BOOL h264_context_set_ohos_surface_target(
-	    H264_CONTEXT* h264, H264_OHOS_SURFACE_TARGET target);
 
 	FREERDP_LOCAL BOOL h264_context_fallback_ohos_avcodec_to_software(H264_CONTEXT* h264);
 

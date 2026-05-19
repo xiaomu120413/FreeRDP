@@ -197,10 +197,9 @@ BOOL freerdp_ohos_rdpgfx_caps_confirm_is_avc444(UINT32 version, UINT32 flags)
 	       (version >= RDPGFX_CAPVERSION_10 && (flags & RDPGFX_CAPS_FLAG_AVC_DISABLED) == 0);
 }
 
-BOOL freerdp_ohos_rdpgfx_codec_is_h264(UINT32 codecId)
+BOOL freerdp_ohos_rdpgfx_codec_is_avc420(UINT32 codecId)
 {
-	return codecId == RDPGFX_CODECID_AVC420 || codecId == RDPGFX_CODECID_AVC444 ||
-	       codecId == RDPGFX_CODECID_AVC444v2;
+	return codecId == RDPGFX_CODECID_AVC420;
 }
 
 BOOL freerdp_ohos_rdpgfx_surface_command_is_full_window(UINT32 left, UINT32 top, UINT32 width,

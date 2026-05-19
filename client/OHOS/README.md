@@ -30,7 +30,7 @@ Current contents:
   lifecycle wiring.
 - `ohos_graphics.*`: owns HarmonyOS graphics-mode parsing, fallback policy and
   H.264 desktop alignment helpers.
-- `ohos_compositor.*`: owns HarmonyOS render-target state, AVC420 direct
+- `ohos_avc420_route.*`: owns HarmonyOS render-target state, AVC420 direct
   Surface route state and graphics diagnostics. AVC444 is intentionally routed
   through FreeRDP native `avc444_decompress()` into the GDI/RGB surface before
   the existing OHOS display path presents it.

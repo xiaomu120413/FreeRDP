@@ -57,14 +57,14 @@ struct freerdp_ohos_rdpgfx_bridge
 	BOOL requested;
 	BOOL h264Requested;
 	BOOL gdiAttached;
-	BOOL h264SurfaceMode;
-	BOOL h264SurfaceActive;
+	BOOL avc420SurfaceMode;
+	BOOL avc420SurfaceActive;
 	UINT32 surfaceTargetWidth;
 	UINT32 surfaceTargetHeight;
 	RdpgfxClientContext* gfx;
 	FREERDP_OHOS_RDPGFX_HOOKS hooks;
 	FREERDP_OHOS_RDPGFX_LOG_CALLBACK log;
-	FREERDP_OHOS_RDPGFX_H264_SURFACE_CALLBACK h264SurfaceCommand;
+	FREERDP_OHOS_RDPGFX_AVC420_SURFACE_CALLBACK avc420SurfaceCommand;
 	void* userData;
 	UINT32 connected;
 	UINT32 disconnected;
@@ -82,8 +82,8 @@ struct freerdp_ohos_rdpgfx_bridge
 	UINT64 codecAvc444;
 	UINT64 codecAvc444v2;
 	UINT64 codecUnknown;
-	UINT64 h264SurfaceSubrectSkips;
-	UINT64 h264SurfaceNoDirect;
+	UINT64 avc420SurfaceSubrectSkips;
+	UINT64 avc420SurfaceNoDirect;
 	UINT32 capsAdvertises;
 	UINT32 advertisedCapsSets;
 	BOOL advertisedAvc420;
@@ -460,9 +460,9 @@ static void ohos_rdpgfx_record_surface_command(freerdpOhosRdpgfxBridge* bridge,
 	}
 }
 
-static BOOL ohos_rdpgfx_should_attempt_h264_surface(
+static BOOL ohos_rdpgfx_should_attempt_avc420_surface(
     freerdpOhosRdpgfxBridge* bridge, const RDPGFX_SURFACE_COMMAND* command,
-    FREERDP_OHOS_RDPGFX_H264_SURFACE_CALLBACK* callback, void** userData, UINT64* skipCount)
+    FREERDP_OHOS_RDPGFX_AVC420_SURFACE_CALLBACK* callback, void** userData, UINT64* skipCount)
 {
 	if (!bridge || !command || !callback || !userData || !skipCount)
 		return FALSE;
@@ -471,12 +471,12 @@ static BOOL ohos_rdpgfx_should_attempt_h264_surface(
 	*userData = NULL;
 	*skipCount = 0;
 
-	if (!freerdp_ohos_rdpgfx_codec_is_h264(command->codecId))
+	if (!freerdp_ohos_rdpgfx_codec_is_avc420(command->codecId))
 		return FALSE;
 
 	EnterCriticalSection(&bridge->lock);
-	const BOOL configured = bridge->h264SurfaceMode;
-	const BOOL active = bridge->h264SurfaceActive;
+	const BOOL configured = bridge->avc420SurfaceMode;
+	const BOOL active = bridge->avc420SurfaceActive;
 	const UINT32 targetWidth = bridge->surfaceTargetWidth;
 	const UINT32 targetHeight = bridge->surfaceTargetHeight;
 	if (!configured || active)
@@ -488,20 +488,20 @@ static BOOL ohos_rdpgfx_should_attempt_h264_surface(
 	if (!freerdp_ohos_rdpgfx_surface_command_is_full_window(
 	        command->left, command->top, command->width, command->height, targetWidth, targetHeight))
 	{
-		*skipCount = ++bridge->h264SurfaceSubrectSkips;
+		*skipCount = ++bridge->avc420SurfaceSubrectSkips;
 		LeaveCriticalSection(&bridge->lock);
 		return FALSE;
 	}
 
-	*callback = bridge->h264SurfaceCommand;
+	*callback = bridge->avc420SurfaceCommand;
 	*userData = bridge->userData;
 	LeaveCriticalSection(&bridge->lock);
 	return *callback != NULL;
 }
 
-static void ohos_rdpgfx_mark_h264_surface_result(freerdpOhosRdpgfxBridge* bridge,
-                                                 const RDPGFX_SURFACE_COMMAND* command,
-                                                 BOOL activated)
+static void ohos_rdpgfx_mark_avc420_surface_result(freerdpOhosRdpgfxBridge* bridge,
+                                                   const RDPGFX_SURFACE_COMMAND* command,
+                                                   BOOL activated)
 {
 	if (!bridge || !command)
 		return;
@@ -509,15 +509,15 @@ static void ohos_rdpgfx_mark_h264_surface_result(freerdpOhosRdpgfxBridge* bridge
 	UINT64 noDirect = 0;
 	EnterCriticalSection(&bridge->lock);
 	if (activated)
-		bridge->h264SurfaceActive = TRUE;
+		bridge->avc420SurfaceActive = TRUE;
 	else
-		noDirect = ++bridge->h264SurfaceNoDirect;
+		noDirect = ++bridge->avc420SurfaceNoDirect;
 	LeaveCriticalSection(&bridge->lock);
 
 	if (!activated && ohos_rdpgfx_should_log_counter(noDirect))
 	{
 		ohos_rdpgfx_log(bridge,
-		                "AVC surface command reached FreeRDP without direct surface output: "
+		                "AVC420 surface command reached FreeRDP without direct surface output: "
 		                "codec=%s surface=%" PRIu16 " size=%" PRIu32 "x%" PRIu32
 		                " count=%" PRIu64,
 		                freerdp_ohos_rdpgfx_codec_name(command->codecId), command->surfaceId,
@@ -581,7 +581,7 @@ static UINT ohos_rdpgfx_caps_confirm(RdpgfxClientContext* context,
 		{
 			const RDPGFX_CAPSET* capsSet = capsConfirm->capsSet;
 			ohos_rdpgfx_record_caps_values(bridge, capsSet->version, capsSet->flags, "callback");
-			if (bridge->h264SurfaceMode)
+			if (bridge->avc420SurfaceMode)
 			{
 				if (freerdp_ohos_rdpgfx_caps_confirm_is_avc420(capsSet->version, capsSet->flags))
 				{
@@ -603,8 +603,8 @@ static UINT ohos_rdpgfx_caps_confirm(RdpgfxClientContext* context,
 				else
 				{
 					EnterCriticalSection(&bridge->lock);
-					bridge->h264SurfaceMode = FALSE;
-					bridge->h264SurfaceActive = FALSE;
+					bridge->avc420SurfaceMode = FALSE;
+					bridge->avc420SurfaceActive = FALSE;
 					LeaveCriticalSection(&bridge->lock);
 					ohos_rdpgfx_log(bridge,
 					                "RDPGFX selected non-AVC graphics mode: version=0x%08" PRIX32
@@ -640,11 +640,11 @@ static UINT ohos_rdpgfx_surface_command(RdpgfxClientContext* context,
 	{
 		ohos_rdpgfx_record_surface_command(bridge, command);
 
-		FREERDP_OHOS_RDPGFX_H264_SURFACE_CALLBACK callback = NULL;
+		FREERDP_OHOS_RDPGFX_AVC420_SURFACE_CALLBACK callback = NULL;
 		void* userData = NULL;
 		UINT64 skipCount = 0;
-		if (ohos_rdpgfx_should_attempt_h264_surface(bridge, command, &callback, &userData,
-		                                            &skipCount))
+		if (ohos_rdpgfx_should_attempt_avc420_surface(bridge, command, &callback, &userData,
+		                                              &skipCount))
 		{
 			FREERDP_OHOS_RDPGFX_SURFACE_COMMAND_INFO info = { 0 };
 			info.codecId = command->codecId;
@@ -653,12 +653,12 @@ static UINT ohos_rdpgfx_surface_command(RdpgfxClientContext* context,
 			info.top = command->top;
 			info.width = command->width;
 			info.height = command->height;
-			ohos_rdpgfx_mark_h264_surface_result(bridge, command, callback(&info, userData));
+			ohos_rdpgfx_mark_avc420_surface_result(bridge, command, callback(&info, userData));
 		}
 		else if (skipCount > 0 && ohos_rdpgfx_should_log_counter(skipCount))
 		{
 			ohos_rdpgfx_log(bridge,
-			                "AVC surface output activation skipped: command is a sub-rectangle "
+			                "AVC420 surface output activation skipped: command is a sub-rectangle "
 			                "surface update; command=%" PRIu32 "x%" PRIu32 " at %" PRIu32
 			                ",%" PRIu32 " count=%" PRIu64,
 			                command->width, command->height, command->left, command->top,
@@ -709,8 +709,8 @@ void freerdp_ohos_rdpgfx_bridge_reset(freerdpOhosRdpgfxBridge* bridge, BOOL requ
 	bridge->requested = requested;
 	bridge->h264Requested = h264Requested;
 	bridge->gdiAttached = FALSE;
-	bridge->h264SurfaceMode = FALSE;
-	bridge->h264SurfaceActive = FALSE;
+	bridge->avc420SurfaceMode = FALSE;
+	bridge->avc420SurfaceActive = FALSE;
 	bridge->connected = 0;
 	bridge->disconnected = 0;
 	bridge->initFailed = 0;
@@ -727,8 +727,8 @@ void freerdp_ohos_rdpgfx_bridge_reset(freerdpOhosRdpgfxBridge* bridge, BOOL requ
 	bridge->codecAvc444 = 0;
 	bridge->codecAvc444v2 = 0;
 	bridge->codecUnknown = 0;
-	bridge->h264SurfaceSubrectSkips = 0;
-	bridge->h264SurfaceNoDirect = 0;
+	bridge->avc420SurfaceSubrectSkips = 0;
+	bridge->avc420SurfaceNoDirect = 0;
 	bridge->capsAdvertises = 0;
 	bridge->advertisedCapsSets = 0;
 	bridge->advertisedAvc420 = FALSE;
@@ -775,11 +775,11 @@ BOOL freerdp_ohos_rdpgfx_bridge_attach(freerdpOhosRdpgfxBridge* bridge,
 	EnterCriticalSection(&bridge->lock);
 	if (bridge->gfx == gfx)
 	{
-		bridge->h264SurfaceMode = config->h264SurfaceMode;
+		bridge->avc420SurfaceMode = config->avc420SurfaceMode;
 		bridge->surfaceTargetWidth = config->surfaceTargetWidth;
 		bridge->surfaceTargetHeight = config->surfaceTargetHeight;
 		bridge->log = config->log;
-		bridge->h264SurfaceCommand = config->h264SurfaceCommand;
+		bridge->avc420SurfaceCommand = config->avc420SurfaceCommand;
 		bridge->userData = config->userData;
 		LeaveCriticalSection(&bridge->lock);
 		ohos_rdpgfx_format_message(message, messageSize, "OHOS rdpgfx bridge already attached");
@@ -792,12 +792,12 @@ BOOL freerdp_ohos_rdpgfx_bridge_attach(freerdpOhosRdpgfxBridge* bridge,
 	bridge->hooks.surfaceCommand = gfx->SurfaceCommand;
 	bridge->hooks.capsAdvertise = gfx->CapsAdvertise;
 	bridge->hooks.capsConfirm = gfx->CapsConfirm;
-	bridge->h264SurfaceMode = config->h264SurfaceMode;
-	bridge->h264SurfaceActive = FALSE;
+	bridge->avc420SurfaceMode = config->avc420SurfaceMode;
+	bridge->avc420SurfaceActive = FALSE;
 	bridge->surfaceTargetWidth = config->surfaceTargetWidth;
 	bridge->surfaceTargetHeight = config->surfaceTargetHeight;
 	bridge->log = config->log;
-	bridge->h264SurfaceCommand = config->h264SurfaceCommand;
+	bridge->avc420SurfaceCommand = config->avc420SurfaceCommand;
 	bridge->userData = config->userData;
 	bridge->connected++;
 	LeaveCriticalSection(&bridge->lock);
@@ -836,7 +836,7 @@ void freerdp_ohos_rdpgfx_bridge_detach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 		bridge->hooks.capsAdvertise = NULL;
 		bridge->hooks.capsConfirm = NULL;
 		bridge->gdiAttached = FALSE;
-		bridge->h264SurfaceActive = FALSE;
+		bridge->avc420SurfaceActive = FALSE;
 		bridge->disconnected++;
 	}
 	LeaveCriticalSection(&bridge->lock);
@@ -860,7 +860,7 @@ void freerdp_ohos_rdpgfx_bridge_set_gdi_attached(freerdpOhosRdpgfxBridge* bridge
 	EnterCriticalSection(&bridge->lock);
 	bridge->gdiAttached = attached;
 	if (!attached)
-		bridge->h264SurfaceActive = FALSE;
+		bridge->avc420SurfaceActive = FALSE;
 	LeaveCriticalSection(&bridge->lock);
 }
 
@@ -883,7 +883,7 @@ const char* freerdp_ohos_rdpgfx_bridge_get_diagnostics(freerdpOhosRdpgfxBridge* 
 	               ",clear:%" PRIu64 ",planar:%" PRIu64 ",avc420:%" PRIu64
 	               ",avc444:%" PRIu64 ",avc444v2:%" PRIu64 ",alpha:%" PRIu64
 	               ",unknown:%" PRIu64 " lastCodec=%s(%" PRIu32 ") lastSurface=%" PRIu32
-	               " lastSize=%" PRIu32 "x%" PRIu32 " h264Surface=%s target=%" PRIu32
+	               " lastSize=%" PRIu32 "x%" PRIu32 " avc420Surface=%s target=%" PRIu32
 	               "x%" PRIu32 " skips=%" PRIu64 " noDirect=%" PRIu64,
 	               bridge->requested ? "requested" : "off",
 	               bridge->h264Requested ? "requested" : "off",
@@ -899,9 +899,9 @@ const char* freerdp_ohos_rdpgfx_bridge_get_diagnostics(freerdpOhosRdpgfxBridge* 
 	               bridge->codecAvc444, bridge->codecAvc444v2, bridge->codecAlpha,
 	               bridge->codecUnknown, freerdp_ohos_rdpgfx_codec_name(bridge->lastCodecId),
 	               bridge->lastCodecId, bridge->lastSurfaceId, bridge->lastCommandWidth,
-	               bridge->lastCommandHeight, bridge->h264SurfaceActive ? "active" : "inactive",
+	               bridge->lastCommandHeight, bridge->avc420SurfaceActive ? "active" : "inactive",
 	               bridge->surfaceTargetWidth, bridge->surfaceTargetHeight,
-	               bridge->h264SurfaceSubrectSkips, bridge->h264SurfaceNoDirect);
+	               bridge->avc420SurfaceSubrectSkips, bridge->avc420SurfaceNoDirect);
 	LeaveCriticalSection(&bridge->lock);
 	return bridge->diagnostics;
 }

@@ -37,7 +37,7 @@ if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
   find_library(OHOS_GLESV3_LIBRARY GLESv3 REQUIRED)
   list(APPEND SRCS
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_certificate.c
-       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_compositor.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_avc420_route.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_display.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_graphics.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_ime.c

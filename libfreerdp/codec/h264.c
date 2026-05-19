@@ -550,23 +550,13 @@ static BOOL avc444_process_rects(H264_CONTEXT* h264, const BYTE* pSrcData, UINT3
                                  WINPR_ATTR_UNUSED UINT32 nDstWidth, UINT32 nDstHeight,
                                  const RECTANGLE_16* rects, UINT32 nrRects, avc444_frame_type type)
 {
-	INT32 status = 0;
 	const BYTE* pYUVData[3];
 	BYTE* pYUVDstData[3];
 	UINT32* piDstStride = h264->iYUV444Stride;
 	BYTE** ppYUVDstData = h264->pYUV444Data;
 	const UINT32* piStride = h264->iStride;
 
-	status = h264->subsystem->Decompress(h264, pSrcData, SrcSize);
-	if (status == H264_OHOS_AVCODEC_FALLBACK_RC)
-	{
-		WLog_Print(h264->log, WLOG_WARN,
-		           "OHOS AVCodec AVC444 buffer decode requested software fallback");
-		if (!h264_context_fallback_ohos_avcodec_to_software(h264))
-			return FALSE;
-		status = h264->subsystem->Decompress(h264, pSrcData, SrcSize);
-	}
-	if (status < 0)
+	if (h264->subsystem->Decompress(h264, pSrcData, SrcSize) < 0)
 		return FALSE;
 
 	pYUVData[0] = h264->pYUVData[0];
@@ -745,10 +735,15 @@ static BOOL h264_context_init(H264_CONTEXT* h264)
 			break;
 
 #ifdef WITH_OHOS_AVCODEC
-		if (h264->ohosAvcodecRuntimeDisabled && (subsystem == &g_Subsystem_OHOS_AVCodec))
+		if (subsystem == &g_Subsystem_OHOS_AVCodec)
+		{
+			if (h264->ohosAvcodecRuntimeDisabled || !h264->ohosSurfaceModeAllowed)
+				continue;
+		}
+		else if (h264->ohosSurfaceModeAllowed)
+		{
 			continue;
-		if (h264->ohosSurfaceModeAllowed && (subsystem != &g_Subsystem_OHOS_AVCodec))
-			continue;
+		}
 #endif
 
 		if (subsystem->Init(h264))
@@ -796,18 +791,6 @@ BOOL h264_context_set_ohos_surface_mode_allowed(H264_CONTEXT* h264, BOOL allowed
 	return changed;
 }
 
-BOOL h264_context_set_ohos_surface_target(H264_CONTEXT* h264, H264_OHOS_SURFACE_TARGET target)
-{
-	BOOL changed = FALSE;
-
-	if (!h264)
-		return FALSE;
-
-	changed = h264->ohosSurfaceTarget != target;
-	h264->ohosSurfaceTarget = target;
-	return changed;
-}
-
 BOOL h264_context_fallback_ohos_avcodec_to_software(H264_CONTEXT* h264)
 {
 	if (!h264 || h264->Compressor)
@@ -815,7 +798,6 @@ BOOL h264_context_fallback_ohos_avcodec_to_software(H264_CONTEXT* h264)
 
 	h264->ohosAvcodecRuntimeDisabled = TRUE;
 	h264->ohosSurfaceModeAllowed = FALSE;
-	h264->ohosSurfaceTarget = H264_OHOS_SURFACE_DEFAULT;
 	h264->surfaceRendered = FALSE;
 
 	if (h264->subsystem && h264->subsystem->Uninit)

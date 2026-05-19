@@ -909,16 +909,6 @@ static UINT gdi_SurfaceCommand_AVC444(rdpGdi* gdi, RdpgfxClientContext* context,
 		if (!h264_context_reset(surface->h264, surface->width, surface->height))
 			return ERROR_INTERNAL_ERROR;
 	}
-#if defined(WITH_OHOS_AVCODEC)
-	if (!surface->h264->ohosAvcodecRuntimeDisabled)
-	{
-		WLog_INFO(TAG,
-		          "OHOS AVC444 native composition uses FreeRDP software H264 decoder for "
-		          "synchronous YUV444 combine");
-		if (!h264_context_fallback_ohos_avcodec_to_software(surface->h264))
-			return ERROR_INTERNAL_ERROR;
-	}
-#endif
 
 	rc = avc444_decompress(surface->h264, bs->LC, meta1->regionRects, meta1->numRegionRects,
 	                       avc1->data, avc1->length, meta2->regionRects, meta2->numRegionRects,
