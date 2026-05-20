@@ -93,6 +93,15 @@ FREERDP_API void freerdp_ohos_rdpgfx_bridge_set_gdi_attached(
 FREERDP_API const char*
 freerdp_ohos_rdpgfx_bridge_get_diagnostics(freerdpOhosRdpgfxBridge* bridge);
 FREERDP_API const char* freerdp_ohos_rdpgfx_codec_name(UINT32 codecId);
+FREERDP_API BOOL freerdp_ohos_rdpgfx_avc444_command_lc_is_valid(
+    const FREERDP_OHOS_RDPGFX_AVC444_COMMAND_INFO* command);
+FREERDP_API BOOL freerdp_ohos_rdpgfx_rects_valid(const RECTANGLE_16* rects, UINT32 count,
+                                                 UINT32 width, UINT32 height);
+FREERDP_API BOOL freerdp_ohos_rdpgfx_rects_cover_full_surface(const RECTANGLE_16* rects,
+                                                              UINT32 count, UINT32 width,
+                                                              UINT32 height);
+FREERDP_API UINT32 freerdp_ohos_rdpgfx_avc444_chroma_v1_required_y_height(
+    const RECTANGLE_16* rects, UINT32 count);
 
 #ifdef __cplusplus
 }

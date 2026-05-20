@@ -46,6 +46,7 @@ freerdp_ohos_graphics_align_h264_desktop_size(const FREERDP_OHOS_GRAPHICS_CONFIG
 FREERDP_API BOOL freerdp_ohos_rdpgfx_caps_confirm_is_avc420(UINT32 version, UINT32 flags);
 FREERDP_API BOOL freerdp_ohos_rdpgfx_caps_confirm_is_avc444(UINT32 version, UINT32 flags);
 FREERDP_API BOOL freerdp_ohos_rdpgfx_codec_is_avc420(UINT32 codecId);
+FREERDP_API BOOL freerdp_ohos_rdpgfx_codec_is_avc444(UINT32 codecId);
 FREERDP_API BOOL freerdp_ohos_rdpgfx_surface_command_is_full_window(UINT32 left, UINT32 top,
                                                                     UINT32 width, UINT32 height,
                                                                     UINT32 targetWidth,

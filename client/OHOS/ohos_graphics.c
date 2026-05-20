@@ -212,6 +212,11 @@ BOOL freerdp_ohos_rdpgfx_codec_is_avc420(UINT32 codecId)
 	return codecId == RDPGFX_CODECID_AVC420;
 }
 
+BOOL freerdp_ohos_rdpgfx_codec_is_avc444(UINT32 codecId)
+{
+	return (codecId == RDPGFX_CODECID_AVC444) || (codecId == RDPGFX_CODECID_AVC444v2);
+}
+
 BOOL freerdp_ohos_rdpgfx_surface_command_is_full_window(UINT32 left, UINT32 top, UINT32 width,
                                                         UINT32 height, UINT32 targetWidth,
                                                         UINT32 targetHeight)
