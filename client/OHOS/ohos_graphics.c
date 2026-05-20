@@ -57,6 +57,16 @@ FREERDP_OHOS_GRAPHICS_CONFIG freerdp_ohos_graphics_config_from_mode(const char* 
 	FREERDP_OHOS_GRAPHICS_CONFIG config = { 0 };
 
 	ohos_graphics_normalize_mode(requestedMode, mode, sizeof(mode));
+	if (ohos_graphics_mode_equals(mode, "gdi") || ohos_graphics_mode_equals(mode, "off") ||
+	    ohos_graphics_mode_equals(mode, "software"))
+	{
+		config.mode = FREERDP_OHOS_GRAPHICS_MODE_GDI;
+		config.enabled = FALSE;
+		config.h264 = FALSE;
+		config.modeName = g_mode_gdi;
+		return config;
+	}
+
 	if (ohos_graphics_mode_equals(mode, "rdpgfx") || ohos_graphics_mode_equals(mode, "gfx") ||
 	    ohos_graphics_mode_equals(mode, "on"))
 	{
