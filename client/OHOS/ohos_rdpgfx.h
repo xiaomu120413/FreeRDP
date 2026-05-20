@@ -24,17 +24,56 @@ typedef struct
 	UINT32 height;
 } FREERDP_OHOS_RDPGFX_SURFACE_COMMAND_INFO;
 
+typedef struct
+{
+	const BYTE* data;
+	UINT32 length;
+	const RECTANGLE_16* regionRects;
+	UINT32 numRegionRects;
+} FREERDP_OHOS_RDPGFX_AVC444_STREAM_INFO;
+
+typedef struct
+{
+	UINT32 codecId;
+	UINT16 surfaceId;
+	UINT32 left;
+	UINT32 top;
+	UINT32 width;
+	UINT32 height;
+	UINT32 targetWidth;
+	UINT32 targetHeight;
+	UINT32 frameId;
+	BOOL frameOpen;
+	UINT32 LC;
+	FREERDP_OHOS_RDPGFX_AVC444_STREAM_INFO stream1;
+	FREERDP_OHOS_RDPGFX_AVC444_STREAM_INFO stream2;
+} FREERDP_OHOS_RDPGFX_AVC444_COMMAND_INFO;
+
+typedef struct
+{
+	UINT32 frameId;
+	UINT32 activeFrameId;
+	BOOL matchedFrame;
+} FREERDP_OHOS_RDPGFX_FRAME_INFO;
+
 typedef void (*FREERDP_OHOS_RDPGFX_LOG_CALLBACK)(const char* message, void* userData);
 typedef BOOL (*FREERDP_OHOS_RDPGFX_AVC420_SURFACE_CALLBACK)(
     const FREERDP_OHOS_RDPGFX_SURFACE_COMMAND_INFO* command, void* userData);
+typedef BOOL (*FREERDP_OHOS_RDPGFX_AVC444_SURFACE_CALLBACK)(
+    const FREERDP_OHOS_RDPGFX_AVC444_COMMAND_INFO* command, void* userData);
+typedef BOOL (*FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK)(
+    const FREERDP_OHOS_RDPGFX_FRAME_INFO* frame, void* userData);
 
 typedef struct
 {
 	BOOL avc420SurfaceMode;
+	BOOL avc444GpuExperimental;
 	UINT32 surfaceTargetWidth;
 	UINT32 surfaceTargetHeight;
 	FREERDP_OHOS_RDPGFX_LOG_CALLBACK log;
 	FREERDP_OHOS_RDPGFX_AVC420_SURFACE_CALLBACK avc420SurfaceCommand;
+	FREERDP_OHOS_RDPGFX_AVC444_SURFACE_CALLBACK avc444SurfaceCommand;
+	FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK avc444EndFrame;
 	void* userData;
 } FREERDP_OHOS_RDPGFX_BRIDGE_CONFIG;
 
@@ -54,6 +93,15 @@ FREERDP_API void freerdp_ohos_rdpgfx_bridge_set_gdi_attached(
 FREERDP_API const char*
 freerdp_ohos_rdpgfx_bridge_get_diagnostics(freerdpOhosRdpgfxBridge* bridge);
 FREERDP_API const char* freerdp_ohos_rdpgfx_codec_name(UINT32 codecId);
+FREERDP_API BOOL freerdp_ohos_rdpgfx_avc444_command_lc_is_valid(
+    const FREERDP_OHOS_RDPGFX_AVC444_COMMAND_INFO* command);
+FREERDP_API BOOL freerdp_ohos_rdpgfx_rects_valid(const RECTANGLE_16* rects, UINT32 count,
+                                                 UINT32 width, UINT32 height);
+FREERDP_API BOOL freerdp_ohos_rdpgfx_rects_cover_full_surface(const RECTANGLE_16* rects,
+                                                              UINT32 count, UINT32 width,
+                                                              UINT32 height);
+FREERDP_API UINT32 freerdp_ohos_rdpgfx_avc444_chroma_v1_required_y_height(
+    const RECTANGLE_16* rects, UINT32 count);
 
 #ifdef __cplusplus
 }

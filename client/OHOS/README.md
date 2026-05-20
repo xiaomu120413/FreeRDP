@@ -35,8 +35,10 @@ Current contents:
   through FreeRDP native `avc444_decompress()` into the GDI/RGB surface before
   the existing OHOS display path presents it.
 - `ohos_rdpgfx.*`: owns the HarmonyOS RDPGFX callback bridge, AVC420 surface
-  decisions, AVC444 negotiation diagnostics and codec diagnostics. The HAP
-  supplies only NativeWindow/AVCodec surface callbacks.
+  decisions, AVC444 negotiation diagnostics and codec diagnostics. The optional
+  AVC444 GPU compositor experiment suppresses native GDI per command only after
+  the HAP callback has consumed that command. The HAP supplies only
+  NativeWindow/AVCodec surface callbacks.
 - `ohos_session_config.*`: owns the HarmonyOS connection defaults, enhanced RDP
   settings and standard channel request parameters for cliprdr, display-control,
   rdpsnd/OHAudio playback and audin/OHAudio capture. The HAP validation shell
