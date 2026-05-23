@@ -206,10 +206,13 @@ set(WINPR_LEVEL2
     rpc
     wtsapi
     dsparse
-    smartcard
     nt
     clipboard
 )
+
+if(WITH_SMARTCARD)
+  list(APPEND WINPR_LEVEL2 smartcard)
+endif()
 
 foreach(DIR ${WINPR_LEVEL2})
   add_subdirectory(${DIR})

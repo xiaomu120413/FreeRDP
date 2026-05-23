@@ -29,8 +29,11 @@ set(SRCS
     file.c
     client_cliprdr_file.c
     geometry.c
-    smartcard_cli.c
 )
+
+if(WITH_SMARTCARD)
+  list(APPEND SRCS smartcard_cli.c)
+endif()
 
 if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
   find_library(OHOS_EGL_LIBRARY EGL REQUIRED)

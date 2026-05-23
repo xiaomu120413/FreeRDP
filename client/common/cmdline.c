@@ -66,7 +66,9 @@
 
 #include <freerdp/client/cmdline.h>
 #include <freerdp/version.h>
+#if defined(WITH_SMARTCARD)
 #include <freerdp/client/utils/smartcard_cli.h>
+#endif
 
 #include <openssl/tls1.h>
 #include "cmdline.h"
@@ -76,7 +78,10 @@
 
 static const char str_force[] = "force";
 
-static const char* credential_args[] = { "p",         "smartcard-logon",
+static const char* credential_args[] = { "p",
+#if defined(WITH_SMARTCARD)
+	                                     "smartcard-logon",
+#endif
 #if defined(WITH_FREERDP_DEPRECATED_COMMANDLINE)
 	                                     "gp",        "gat",
 #endif
@@ -679,8 +684,10 @@ BOOL freerdp_client_print_command_line_help_ex(int argc, char** argv,
 	printf("Disable clipboard redirection: -clipboard\n");
 	printf("\n");
 	printf("Drive Redirection: /drive:home,/home/user\n");
+#if defined(WITH_SMARTCARD)
 	printf("Smartcard Redirection: /smartcard:<device>\n");
 	printf("Smartcard logon with Kerberos authentication: /smartcard-logon /sec:nla\n");
+#endif
 
 #if defined(CHANNEL_SERIAL_CLIENT)
 	printf("Serial Port Redirection: /serial:<name>,<device>,[SerCx2|SerCx|Serial],[permissive]\n");
@@ -821,6 +828,7 @@ BOOL freerdp_client_add_device_channel(rdpSettings* settings, size_t count,
 
 		return TRUE;
 	}
+#if defined(WITH_SMARTCARD)
 	else if (option_equals(params[0], "smartcard"))
 	{
 		RDPDR_DEVICE* smartcard = nullptr;
@@ -846,6 +854,7 @@ BOOL freerdp_client_add_device_channel(rdpSettings* settings, size_t count,
 
 		return TRUE;
 	}
+#endif
 #if defined(CHANNEL_SERIAL_CLIENT)
 	else if (option_equals(params[0], "serial"))
 	{
@@ -1169,6 +1178,7 @@ static int freerdp_client_command_line_post_filter_int(void* context, COMMAND_LI
 			return fail_at(arg, status);
 	}
 #endif
+#if defined(WITH_SMARTCARD)
 	CommandLineSwitchCase(arg, "smartcard")
 	{
 		size_t count = 0;
@@ -1179,6 +1189,7 @@ static int freerdp_client_command_line_post_filter_int(void* context, COMMAND_LI
 		if (status)
 			return fail_at(arg, status);
 	}
+#endif
 	CommandLineSwitchCase(arg, "printer")
 	{
 		size_t count = 0;
@@ -1894,7 +1905,11 @@ static int evaluate_result(int argc, char* argv[], int rc, rdpSettings* settings
 				CommandLineParserFree(ptr);
 			}
 
+#if defined(WITH_SMARTCARD)
 			freerdp_smartcard_list(settings);
+#else
+			return COMMAND_LINE_ERROR_UNEXPECTED_VALUE;
+#endif
 		}
 		else
 		{
@@ -1946,7 +1961,11 @@ static int evaluate_result(int argc, char* argv[], int rc, rdpSettings* settings
 		if (arg->Flags & COMMAND_LINE_VALUE_PRESENT)
 		{
 			WLog_WARN(TAG, "Option /smartcard-list is deprecated, use /list:smartcard instead");
+#if defined(WITH_SMARTCARD)
 			freerdp_smartcard_list(settings);
+#else
+			return COMMAND_LINE_ERROR_UNEXPECTED_VALUE;
+#endif
 		}
 
 		arg = CommandLineFindArgumentA(largs, "kbd-scancode-list");
@@ -2097,10 +2116,12 @@ static BOOL prepare_default_settings(rdpSettings* settings, COMMAND_LINE_ARGUMEN
 	return freerdp_set_connection_type(settings, CONNECTION_TYPE_AUTODETECT);
 }
 
+#if defined(WITH_SMARTCARD)
 static BOOL setSmartcardEmulation(WINPR_ATTR_UNUSED const char* value, rdpSettings* settings)
 {
 	return freerdp_settings_set_bool(settings, FreeRDP_SmartcardEmulation, TRUE);
 }
+#endif
 
 const char* option_starts_with(const char* what, const char* val)
 {
@@ -3765,6 +3786,9 @@ static int parse_smartcard_logon_options(rdpSettings* settings, const COMMAND_LI
 	WINPR_ASSERT(settings);
 	WINPR_ASSERT(arg);
 
+#if !defined(WITH_SMARTCARD)
+	return COMMAND_LINE_ERROR_UNEXPECTED_VALUE;
+#else
 	size_t count = 0;
 
 	if (!freerdp_settings_set_bool(settings, FreeRDP_SmartcardLogon, TRUE))
@@ -3796,6 +3820,7 @@ static int parse_smartcard_logon_options(rdpSettings* settings, const COMMAND_LI
 	}
 	CommandLineParserFree(ptr);
 	return 0;
+#endif
 }
 
 static int parse_tune_options(rdpSettings* settings, const COMMAND_LINE_ARGUMENT_A* arg)
@@ -6357,6 +6382,7 @@ BOOL freerdp_client_load_addins(rdpChannels* channels, rdpSettings* settings)
 
 	if (freerdp_settings_get_bool(settings, FreeRDP_RedirectSmartCards))
 	{
+#if defined(WITH_SMARTCARD)
 		if (!freerdp_device_collection_find_type(settings, RDPDR_DTYP_SMARTCARD))
 		{
 			RDPDR_DEVICE* smartcard = freerdp_device_new(RDPDR_DTYP_SMARTCARD, 0, nullptr);
@@ -6370,6 +6396,10 @@ BOOL freerdp_client_load_addins(rdpChannels* channels, rdpSettings* settings)
 				return FALSE;
 			}
 		}
+#else
+		WLog_ERR(TAG, "Smartcard redirection support is disabled in this build");
+		return FALSE;
+#endif
 	}
 
 	if (freerdp_settings_get_bool(settings, FreeRDP_RedirectPrinters))

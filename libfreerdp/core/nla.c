@@ -213,6 +213,7 @@ static const UINT32 NonceLength = 32;
 
 static BOOL nla_adjust_settings_from_smartcard(rdpNla* nla)
 {
+#if defined(WITH_SMARTCARD)
 	BOOL ret = FALSE;
 
 	WINPR_ASSERT(nla);
@@ -292,6 +293,18 @@ static BOOL nla_adjust_settings_from_smartcard(rdpNla* nla)
 	ret = TRUE;
 out:
 	return ret;
+#else
+	WINPR_ASSERT(nla);
+	WINPR_ASSERT(nla->rdpcontext);
+
+	if (nla->rdpcontext->settings->SmartcardLogon)
+	{
+		WLog_ERR(TAG, "Smartcard logon support is disabled in this build");
+		return FALSE;
+	}
+
+	return TRUE;
+#endif
 }
 
 static BOOL nla_client_setup_identity(rdpNla* nla)
@@ -377,6 +390,7 @@ static BOOL nla_client_setup_identity(rdpNla* nla)
 	}
 	else if (settings->SmartcardLogon)
 	{
+#if defined(WITH_SMARTCARD)
 		if (smartCardLogonWasDisabled)
 		{
 			if (!nla_adjust_settings_from_smartcard(nla))
@@ -387,6 +401,10 @@ static BOOL nla_client_setup_identity(rdpNla* nla)
 		                                      FreeRDP_Domain, FreeRDP_Password, nla->certSha1,
 		                                      sizeof(nla->certSha1)))
 			return FALSE;
+#else
+		WLog_ERR(TAG, "Smartcard logon support is disabled in this build");
+		return FALSE;
+#endif
 	}
 	else
 	{
@@ -1650,6 +1668,7 @@ out:
 
 static BOOL nla_encode_ts_smartcard_credentials(rdpNla* nla, WinPrAsn1Encoder* enc)
 {
+#if defined(WITH_SMARTCARD)
 	struct
 	{
 		WinPrAsn1_tagId tag;
@@ -1739,6 +1758,11 @@ static BOOL nla_encode_ts_smartcard_credentials(rdpNla* nla, WinPrAsn1Encoder* e
 
 	/* End TSSmartCardCreds */
 	return WinPrAsn1EncEndContainer(enc) != 0;
+#else
+	WINPR_UNUSED(nla);
+	WINPR_UNUSED(enc);
+	return FALSE;
+#endif
 }
 
 static BOOL nla_encode_ts_password_credentials(rdpNla* nla, WinPrAsn1Encoder* enc)
@@ -1846,7 +1870,14 @@ static BOOL nla_encode_ts_credentials(rdpNla* nla)
 	if (settings->RemoteCredentialGuard)
 		credType = TSCREDS_REMOTEGUARD;
 	else if (settings->SmartcardLogon)
+	{
+#if defined(WITH_SMARTCARD)
 		credType = TSCREDS_SMARTCARD;
+#else
+		WLog_ERR(TAG, "Smartcard logon support is disabled in this build");
+		return FALSE;
+#endif
+	}
 	else
 		credType = TSCREDS_USER_PASSWD;
 
@@ -2353,7 +2384,9 @@ void nla_free(rdpNla* nla)
 	if (!nla)
 		return;
 
+#if defined(WITH_SMARTCARD)
 	smartcardCertInfo_Free(nla->smartcardCert);
+#endif
 	nla_buffer_free(nla);
 	sspi_SecBufferFree(&nla->tsCredentials);
 	credssp_auth_free(nla->auth);

@@ -1243,11 +1243,16 @@ static BOOL rdg_auth_init(rdpRdg* rdg, rdpTls* tls, TCHAR* authPkg)
 	BOOL doSCLogon = freerdp_settings_get_bool(settings, FreeRDP_SmartcardLogon);
 	if (doSCLogon)
 	{
+#if defined(WITH_SMARTCARD)
 		if (!smartcard_getCert(context, &rdg->smartcard, TRUE))
 			return FALSE;
 
 		if (!rdg_get_gateway_credentials(context, AUTH_SMARTCARD_PIN))
 			return FALSE;
+#else
+		WLog_ERR(TAG, "Smartcard gateway authentication is disabled in this build");
+		return FALSE;
+#endif
 	}
 	else
 	{
@@ -1256,18 +1261,31 @@ static BOOL rdg_auth_init(rdpRdg* rdg, rdpTls* tls, TCHAR* authPkg)
 
 		/* Auth callback might changed logon to smartcard so check again */
 		doSCLogon = freerdp_settings_get_bool(settings, FreeRDP_SmartcardLogon);
+#if defined(WITH_SMARTCARD)
 		if (doSCLogon && !smartcard_getCert(context, &rdg->smartcard, TRUE))
 			return FALSE;
+#else
+		if (doSCLogon)
+		{
+			WLog_ERR(TAG, "Smartcard gateway authentication is disabled in this build");
+			return FALSE;
+		}
+#endif
 	}
 
 	SEC_WINNT_AUTH_IDENTITY* identityArg = &identity;
 	if (doSCLogon)
 	{
+#if defined(WITH_SMARTCARD)
 		if (!identity_set_from_smartcard_hash(&identity, settings, FreeRDP_GatewayUsername,
 		                                      FreeRDP_GatewayDomain, FreeRDP_GatewayPassword,
 		                                      rdg->smartcard->sha1Hash,
 		                                      sizeof(rdg->smartcard->sha1Hash)))
 			return FALSE;
+#else
+		WLog_ERR(TAG, "Smartcard gateway authentication is disabled in this build");
+		return FALSE;
+#endif
 	}
 	else
 	{
@@ -2328,7 +2346,9 @@ void rdg_free(rdpRdg* rdg)
 
 	DeleteCriticalSection(&rdg->writeSection);
 
+#if defined(WITH_SMARTCARD)
 	smartcardCertInfo_Free(rdg->smartcard);
+#endif
 
 	websocket_context_free(rdg->transferEncoding.context.websocket);
 

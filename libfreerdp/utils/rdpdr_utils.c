@@ -20,7 +20,9 @@
 
 #include <winpr/wlog.h>
 #include <winpr/print.h>
+#if defined(WITH_SMARTCARD)
 #include <winpr/smartcard.h>
+#endif
 
 #include <freerdp/utils/rdpdr_utils.h>
 #include <freerdp/channels/scard.h>
@@ -28,6 +30,7 @@
 
 #include <freerdp/log.h>
 
+#if defined(WITH_SMARTCARD)
 LONG scard_log_status_error(const char* tag, const char* what, LONG status)
 {
 	wLog* log = WLog_Get(tag);
@@ -220,6 +223,7 @@ const char* scard_get_ioctl_string(UINT32 ioControlCode, BOOL funcName)
 			return funcName ? "SCardUnknown" : "SCARD_IOCTL_UNKNOWN";
 	}
 }
+#endif
 
 const char* rdpdr_component_string(UINT16 component)
 {

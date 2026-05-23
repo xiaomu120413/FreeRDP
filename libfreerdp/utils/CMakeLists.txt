@@ -32,13 +32,17 @@ set(${MODULE_PREFIX}_SRCS
     string.c
     gfx.c
     drdynvc.c
-    smartcard_operations.c
-    smartcard_pack.h
-    smartcard_pack.c
-    smartcard_call.c
     stopwatch.c
     http.c
 )
+
+if(WITH_SMARTCARD)
+  list(APPEND ${MODULE_PREFIX}_SRCS
+      smartcard_operations.c
+      smartcard_pack.h
+      smartcard_pack.c
+      smartcard_call.c)
+endif()
 
 if(WIN32)
   list(APPEND ${MODULE_PREFIX}_SRCS signal_win32.c)
