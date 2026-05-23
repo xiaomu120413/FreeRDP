@@ -1,4 +1,4 @@
-#ifndef FREERDP_CLIENT_OHOS_RDPGFX_H
+﻿#ifndef FREERDP_CLIENT_OHOS_RDPGFX_H
 #define FREERDP_CLIENT_OHOS_RDPGFX_H
 
 #include <stddef.h>
@@ -67,7 +67,7 @@ typedef BOOL (*FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK)(
 typedef struct
 {
 	BOOL avc420SurfaceMode;
-	BOOL avc444GpuExperimental;
+	BOOL avc444GpuCompositor;
 	UINT32 surfaceTargetWidth;
 	UINT32 surfaceTargetHeight;
 	FREERDP_OHOS_RDPGFX_LOG_CALLBACK log;
