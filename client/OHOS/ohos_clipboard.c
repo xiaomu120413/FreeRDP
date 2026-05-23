@@ -66,6 +66,7 @@ int OH_FileUri_GetPathFromUri(const char* uri, unsigned int length, char** resul
 #define OHOS_CLIPBOARD_MAX_URI_IMAGE_BYTES (64U * 1024U * 1024U)
 #define OHOS_CLIPBOARD_IMAGE_SIGNATURE_BYTES 12U
 #define OHOS_CLIPBOARD_IMAGE_REQUEST_TIMEOUT_MS 10000ULL
+#define OHOS_CLIPBOARD_PERMISSION_TIMEOUT_MS 60000U
 #define OHOS_CLIPBOARD_MAX_LOCAL_IMAGE_PIXELS (4096U * 4096U)
 #define OHOS_CLIPBOARD_MAX_LOCAL_IMAGE_BYTES (64U * 1024U * 1024U)
 #define OHOS_CLIPBOARD_LCS_SRGB 0x73524742U
@@ -108,6 +109,7 @@ struct freerdp_ohos_clipboard
 	OH_Pasteboard* pasteboard;
 	OH_PasteboardObserver* observer;
 	BOOL pasteboardSubscribed;
+	BOOL pasteboardReadPermissionGranted;
 	BOOL channelConnectedSubscribed;
 	BOOL channelDisconnectedSubscribed;
 	BOOL lockInitialized;
@@ -278,6 +280,35 @@ static void ohos_clipboard_trace_udmf_data(freerdpOhosClipboard* clipboard, cons
 	                   OH_UdmfData_HasType(data, UDMF_META_IMAGE) ? 1 : 0);
 }
 
+static BOOL ohos_clipboard_ensure_read_permission(freerdpOhosClipboard* clipboard,
+                                                  const char* reason)
+{
+	if (!clipboard)
+		return FALSE;
+	if (clipboard->pasteboardReadPermissionGranted)
+		return TRUE;
+	if (!clipboard->config.RequestReadPermission)
+		return TRUE;
+
+	const BOOL granted = clipboard->config.RequestReadPermission(
+	    clipboard->config.permissionUserData, OHOS_CLIPBOARD_PERMISSION_TIMEOUT_MS);
+	if (granted)
+	{
+		clipboard->pasteboardReadPermissionGranted = TRUE;
+		ohos_clipboard_log(clipboard,
+		                   "HarmonyOS Pasteboard read permission granted before %s",
+		                   reason ? reason : "clipboard read");
+		return TRUE;
+	}
+
+	clipboard->lastError = ERR_PERMISSION_ERROR;
+	++clipboard->errorCount;
+	ohos_clipboard_log(clipboard,
+	                   "HarmonyOS Pasteboard read permission denied before %s",
+	                   reason ? reason : "clipboard read");
+	return FALSE;
+}
+
 static OH_UdmfData* ohos_clipboard_get_pasteboard_data(freerdpOhosClipboard* clipboard,
                                                        const char* reason, int* outStatus)
 {
@@ -293,10 +324,19 @@ static OH_UdmfData* ohos_clipboard_get_pasteboard_data(freerdpOhosClipboard* cli
 		return NULL;
 	}
 
+	if (!ohos_clipboard_ensure_read_permission(clipboard, reason))
+	{
+		if (outStatus)
+			*outStatus = ERR_PERMISSION_ERROR;
+		return NULL;
+	}
+
 	ohos_clipboard_trace_pasteboard_state(clipboard, reason);
 	data = OH_Pasteboard_GetData(clipboard->pasteboard, &status);
 	if (outStatus)
 		*outStatus = status;
+	if (status == ERR_PERMISSION_ERROR)
+		clipboard->pasteboardReadPermissionGranted = FALSE;
 	ohos_clipboard_log(clipboard,
 	                   "HarmonyOS Pasteboard GetData after %s: status=%d(%s) data=%p",
 	                   reason ? reason : "unknown", status,
