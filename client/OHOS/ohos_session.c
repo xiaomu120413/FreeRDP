@@ -331,8 +331,11 @@ freerdpOhosSession* freerdp_ohos_session_new(void)
 		return NULL;
 
 	session->keyboard = freerdp_ohos_keyboard_state_new();
-	if (!session->keyboard)
+	session->inputQueue = freerdp_ohos_input_queue_new();
+	if (!session->keyboard || !session->inputQueue)
 	{
+		freerdp_ohos_keyboard_state_free(session->keyboard);
+		freerdp_ohos_input_queue_free(session->inputQueue);
 		free(session);
 		return NULL;
 	}
@@ -350,6 +353,7 @@ void freerdp_ohos_session_free(freerdpOhosSession* session)
 		freerdp_ohos_session_disconnect(session);
 	ohos_session_cleanup(session);
 	freerdp_ohos_keyboard_state_free(session->keyboard);
+	freerdp_ohos_input_queue_free(session->inputQueue);
 	free(session);
 }
 
@@ -380,6 +384,7 @@ BOOL freerdp_ohos_session_connect(freerdpOhosSession* session,
 	session->requestedDisconnect = FALSE;
 	session->connected = FALSE;
 	freerdp_ohos_keyboard_state_reset(session->keyboard);
+	freerdp_ohos_input_queue_reset(session->inputQueue);
 
 	if (!ohos_session_validate_options(session, options, message, messageSize))
 		return FALSE;
@@ -430,6 +435,15 @@ BOOL freerdp_ohos_session_connect(freerdpOhosSession* session,
 	while (ohos_session_should_continue(session) &&
 	       !freerdp_shall_disconnect_context(session->instance->context))
 	{
+		char inputDetail[256] = { 0 };
+		if (freerdp_ohos_input_queue_drain(session->inputQueue,
+		                                   session->instance->context, inputDetail,
+		                                   sizeof(inputDetail)) &&
+		    inputDetail[0] != '\0')
+		{
+			ohos_session_emit_log(session, inputDetail);
+		}
+
 		if (session->callbacks.Pump &&
 		    !session->callbacks.Pump(session->instance, session->instance->context,
 		                             session->callbacks.userData))
@@ -519,6 +533,7 @@ void freerdp_ohos_session_disconnect(freerdpOhosSession* session)
 	session->requestedDisconnect = TRUE;
 	session->connected = FALSE;
 	freerdp_ohos_keyboard_state_reset(session->keyboard);
+	freerdp_ohos_input_queue_clear(session->inputQueue);
 	if (session->instance && session->instance->context)
 		freerdp_abort_connect_context(session->instance->context);
 	ohos_session_set_diagnostics(session, "OHOS session disconnected");

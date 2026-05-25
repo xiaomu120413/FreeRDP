@@ -44,6 +44,7 @@ if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_display.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_graphics.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_ime.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_input_queue.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_keyboard.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_pointer.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx.c

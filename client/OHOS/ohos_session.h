@@ -60,6 +60,11 @@ FREERDP_API BOOL freerdp_ohos_session_send_key(freerdpOhosSession* session,
 FREERDP_API BOOL freerdp_ohos_session_send_text(freerdpOhosSession* session,
                                                 const uint16_t* text, size_t length,
                                                 char* message, size_t messageSize);
+FREERDP_API BOOL freerdp_ohos_session_send_focus_in(freerdpOhosSession* session,
+                                                    UINT16 toggleStates, char* message,
+                                                    size_t messageSize);
+FREERDP_API BOOL freerdp_ohos_session_release_all_keys(freerdpOhosSession* session,
+                                                       char* message, size_t messageSize);
 FREERDP_API BOOL freerdp_ohos_session_resize(freerdpOhosSession* session, UINT32 width,
                                              UINT32 height, char* message,
                                              size_t messageSize);

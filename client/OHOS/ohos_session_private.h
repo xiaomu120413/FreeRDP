@@ -2,6 +2,7 @@
 #define FREERDP_CLIENT_OHOS_SESSION_PRIVATE_H
 
 #include "ohos_session.h"
+#include "ohos_input_queue.h"
 
 struct freerdp_ohos_session
 {
@@ -12,6 +13,7 @@ struct freerdp_ohos_session
 	FREERDP_OHOS_SESSION_CALLBACKS callbacks;
 	freerdp* instance;
 	FREERDP_OHOS_KEYBOARD_STATE* keyboard;
+	freerdpOhosInputQueue* inputQueue;
 	char diagnostics[512];
 };
 
