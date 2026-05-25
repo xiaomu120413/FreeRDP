@@ -34,6 +34,15 @@ typedef struct
 	const char* graphicsMode;
 	const char* appDataDir;
 	const char* certificatePolicy;
+	BOOL clipboard;
+	BOOL displayControl;
+	BOOL audioPlayback;
+	BOOL audioCapture;
+	UINT32 audioPlaybackRate;
+	UINT32 audioPlaybackChannels;
+	UINT32 audioPlaybackLatencyMs;
+	UINT32 audioCaptureRate;
+	UINT32 audioCaptureChannels;
 	UINT32 colorDepth;
 	UINT32 tcpConnectTimeoutMs;
 } FREERDP_OHOS_SESSION_INPUT;

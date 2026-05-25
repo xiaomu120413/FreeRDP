@@ -81,10 +81,10 @@ static BOOL ohos_session_add_dynamic_channel(rdpSettings* settings, size_t count
 FREERDP_OHOS_SESSION_CONFIG freerdp_ohos_session_config_default(void)
 {
 	FREERDP_OHOS_SESSION_CONFIG config = { 0 };
-	config.clipboard = TRUE;
+	config.clipboard = FALSE;
 	config.displayControl = TRUE;
 	config.audioPlayback = TRUE;
-	config.audioCapture = TRUE;
+	config.audioCapture = FALSE;
 	config.audioPlaybackRate = 44100;
 	config.audioPlaybackChannels = 2;
 	config.audioPlaybackLatencyMs = 100;
@@ -248,7 +248,7 @@ BOOL freerdp_ohos_session_apply_settings(rdpSettings* settings,
 	                                 CLIPRDR_FLAG_LOCAL_TO_REMOTE_FILES |
 	                                 CLIPRDR_FLAG_REMOTE_TO_LOCAL_FILES,
 	                             "ClipboardFeatureMask", message, messageSize) ||
-	    !ohos_session_set_bool(settings, FreeRDP_DeviceRedirection, TRUE, "DeviceRedirection",
+	    !ohos_session_set_bool(settings, FreeRDP_DeviceRedirection, FALSE, "DeviceRedirection",
 	                           message, messageSize) ||
 	    !ohos_session_set_bool(settings, FreeRDP_AudioPlayback, config->audioPlayback,
 	                           "AudioPlayback", message, messageSize) ||
