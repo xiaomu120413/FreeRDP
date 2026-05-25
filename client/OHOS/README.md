@@ -44,6 +44,10 @@ Current contents:
   rdpsnd/OHAudio playback and audin/OHAudio capture. The HAP validation shell
   passes host/user input and the selected graphics mode, then receives log
   strings without hard-coding those FreeRDP/channel parameters.
+- `ohos_session.*`: defines the public opaque HarmonyOS session API surface.
+  T02 exports the ABI and validation/diagnostics skeleton while the HAP
+  validation shell still owns the worker thread and FreeRDP event loop. T03 will
+  move the event-loop implementation behind this API.
 
 Planned migration:
 
