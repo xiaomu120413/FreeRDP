@@ -11,7 +11,7 @@
 #include "ohos_ime.h"
 #include "ohos_keyboard.h"
 #include "ohos_pointer.h"
-#include "ohos_session_config.h"
+#include "ohos_session_options.h"
 
 #ifdef __cplusplus
 extern "C"
@@ -30,14 +30,6 @@ typedef void (*FREERDP_OHOS_SESSION_CONTEXT_CALLBACK)(freerdp* instance, rdpCont
 typedef BOOL (*FREERDP_OHOS_SESSION_PUMP_CALLBACK)(freerdp* instance, rdpContext* context,
                                                    void* userData);
 typedef BOOL (*FREERDP_OHOS_SESSION_CONTINUE_CALLBACK)(void* userData);
-
-typedef struct freerdp_ohos_session_options
-{
-	FREERDP_OHOS_CONNECTION_CONFIG connection;
-	FREERDP_OHOS_SESSION_CONFIG session;
-	const char* appDataDir;
-	UINT32 certificatePolicy;
-} FREERDP_OHOS_SESSION_OPTIONS;
 
 typedef struct
 {

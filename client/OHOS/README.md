@@ -39,11 +39,14 @@ Current contents:
   GPU compositor is the default path for `rdpgfx-h264`; it suppresses native GDI
   per command only after the HAP callback has consumed that command. The HAP
   supplies only NativeWindow/AVCodec surface callbacks.
-- `ohos_session_config.*`: owns the HarmonyOS connection defaults, enhanced RDP
-  settings and standard channel request parameters for cliprdr, display-control,
-  rdpsnd/OHAudio playback and audin/OHAudio capture. The HAP validation shell
-  passes host/user input and the selected graphics mode, then receives log
-  strings without hard-coding those FreeRDP/channel parameters.
+- `ohos_session_config.*`: owns enhanced RDP settings and standard channel
+  request parameters for cliprdr, display-control, rdpsnd/OHAudio playback and
+  audin/OHAudio capture.
+- `ohos_session_options.*`: owns raw HAP option normalization, including
+  username/domain splitting, port and desktop-size parsing, graphics-mode and
+  certificate-policy parsing, H.264 desktop alignment and FreeRDP storage paths.
+- `ohos_session_input.*`: owns the public session pointer/key/text/resize
+  dispatch entry points.
 - `ohos_session.*`: defines the public opaque HarmonyOS session API surface.
   It owns the FreeRDP instance/context lifecycle, standard OHOS settings,
   channel requests, connect/disconnect and event loop. The HAP supplies UI,
