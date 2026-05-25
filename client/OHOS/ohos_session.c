@@ -5,6 +5,8 @@
 
 #include "ohos_session_private.h"
 
+#include "ohos_certificate.h"
+
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -98,6 +100,11 @@ static void ohos_session_emit_state(freerdpOhosSession* session, const char* sta
 		session->callbacks.StateChanged(state, session->callbacks.userData);
 }
 
+static void ohos_session_certificate_log(const char* message, void* userData)
+{
+	ohos_session_emit_log((freerdpOhosSession*)userData, message);
+}
+
 static BOOL ohos_session_should_continue(freerdpOhosSession* session)
 {
 	if (!session || session->requestedDisconnect)
@@ -174,6 +181,9 @@ static void ohos_session_cleanup(freerdpOhosSession* session)
 	if (session->teardownPending && session->callbacks.Teardown)
 		session->callbacks.Teardown(instance, context, session->callbacks.userData);
 	session->teardownPending = FALSE;
+
+	if (instance)
+		freerdp_ohos_certificate_unregister_callbacks(instance);
 
 	if (session->contextCreated && context)
 		freerdp_context_free(instance);
@@ -288,6 +298,18 @@ static BOOL ohos_session_configure(freerdpOhosSession* session,
 
 	if (!ohos_session_enable_client_channels(session) || !ohos_session_apply_options(session, options))
 		return FALSE;
+
+	if (!freerdp_ohos_certificate_register_callbacks(
+	        session->instance, options->certificatePolicy, ohos_session_certificate_log, session,
+	        detail, sizeof(detail)))
+	{
+		ohos_session_set_diagnostics(
+		    session, "%s",
+		    detail[0] == '\0' ? "OHOS certificate callback registration failed" : detail);
+		return FALSE;
+	}
+	ohos_session_emit_log(session,
+	                      detail[0] == '\0' ? "OHOS certificate callbacks registered" : detail);
 
 	session->teardownPending = TRUE;
 	if (session->callbacks.Configure &&

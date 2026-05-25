@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include <freerdp/api.h>
+#include <freerdp/freerdp.h>
 #include <winpr/wtypes.h>
 
 #ifdef __cplusplus
@@ -29,11 +30,18 @@ typedef struct
 	BOOL changed;
 } FREERDP_OHOS_CERTIFICATE_VERIFY_INFO;
 
+typedef void (*FREERDP_OHOS_CERTIFICATE_MESSAGE_CALLBACK)(const char* message,
+                                                          void* userData);
+
 FREERDP_API UINT32 freerdp_ohos_certificate_policy_from_string(const char* value);
 FREERDP_API const char* freerdp_ohos_certificate_policy_name(UINT32 policy);
 FREERDP_API DWORD freerdp_ohos_certificate_verify(
     UINT32 policy, const FREERDP_OHOS_CERTIFICATE_VERIFY_INFO* info, char* message,
     size_t messageSize);
+FREERDP_API BOOL freerdp_ohos_certificate_register_callbacks(
+    freerdp* instance, UINT32 policy, FREERDP_OHOS_CERTIFICATE_MESSAGE_CALLBACK logCallback,
+    void* userData, char* message, size_t messageSize);
+FREERDP_API void freerdp_ohos_certificate_unregister_callbacks(freerdp* instance);
 
 #ifdef __cplusplus
 }
