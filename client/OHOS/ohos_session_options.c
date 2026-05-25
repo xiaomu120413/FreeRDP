@@ -292,20 +292,6 @@ BOOL freerdp_ohos_session_prepare_options(
 
 	FREERDP_OHOS_SESSION_CONFIG sessionConfig = { 0 };
 	freerdp_ohos_session_config_from_graphics(&prepared->graphics, &sessionConfig);
-	sessionConfig.clipboard = input->clipboard ? TRUE : FALSE;
-	sessionConfig.displayControl = input->displayControl ? TRUE : FALSE;
-	sessionConfig.audioPlayback = input->audioPlayback ? TRUE : FALSE;
-	sessionConfig.audioCapture = input->audioCapture ? TRUE : FALSE;
-	if (input->audioPlaybackRate > 0)
-		sessionConfig.audioPlaybackRate = input->audioPlaybackRate;
-	if (input->audioPlaybackChannels > 0)
-		sessionConfig.audioPlaybackChannels = input->audioPlaybackChannels;
-	if (input->audioPlaybackLatencyMs > 0)
-		sessionConfig.audioPlaybackLatencyMs = input->audioPlaybackLatencyMs;
-	if (input->audioCaptureRate > 0)
-		sessionConfig.audioCaptureRate = input->audioCaptureRate;
-	if (input->audioCaptureChannels > 0)
-		sessionConfig.audioCaptureChannels = input->audioCaptureChannels;
 	const UINT32 certificatePolicy =
 	    freerdp_ohos_certificate_policy_from_string(input->certificatePolicy);
 
@@ -330,14 +316,12 @@ BOOL freerdp_ohos_session_prepare_options(
 	    message, messageSize,
 	    "OHOS session options prepared: target=<redacted>:%" PRIu32
 	    " desktop=%" PRIu32 "x%" PRIu32 " mode=%s policy=%s domain=%s appDataDir=set"
-	    " channels=cliprdr:%d disp:%d rdpsnd:%d audin:%d"
 	    " h264Align=%" PRIu32 "x%" PRIu32 "->%" PRIu32 "x%" PRIu32,
 	    port, width, height,
 	    prepared->graphics.modeName ? prepared->graphics.modeName : "unknown",
 	    freerdp_ohos_certificate_policy_name(certificatePolicy),
-	    prepared->domain[0] == '\0' ? "none" : "set", sessionConfig.clipboard,
-	    sessionConfig.displayControl, sessionConfig.audioPlayback, sessionConfig.audioCapture,
-	    requestedWidth, requestedHeight, width, height);
+	    prepared->domain[0] == '\0' ? "none" : "set", requestedWidth, requestedHeight, width,
+	    height);
 	return TRUE;
 }
 
