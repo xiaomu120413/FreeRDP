@@ -1,6 +1,6 @@
 /**
  * FreeRDP: A Remote Desktop Protocol Implementation
- * HarmonyOS public session API skeleton
+ * HarmonyOS public session API
  */
 
 #include "ohos_session.h"
@@ -11,13 +11,22 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <freerdp/addin.h>
+#include <freerdp/client.h>
+#include <freerdp/client/channels.h>
+#include <freerdp/error.h>
 #include <freerdp/input.h>
+#include <winpr/synch.h>
 
 struct freerdp_ohos_session
 {
 	BOOL connected;
 	BOOL connectAttempted;
+	BOOL contextCreated;
+	BOOL teardownPending;
+	BOOL requestedDisconnect;
 	FREERDP_OHOS_SESSION_CALLBACKS callbacks;
+	freerdp* instance;
 	FREERDP_OHOS_KEYBOARD_STATE* keyboard;
 	char diagnostics[512];
 };
@@ -55,6 +64,36 @@ static void ohos_session_copy_diagnostics(freerdpOhosSession* session, char* mes
 	ohos_session_format_message(message, messageSize, "%s", session->diagnostics);
 }
 
+static const char* ohos_session_last_error_text(UINT32 code)
+{
+	const char* text = freerdp_get_last_error_string(code);
+	if (text && text[0] != '\0')
+		return text;
+	return "";
+}
+
+static const char* ohos_session_last_error_name(UINT32 code)
+{
+	const char* name = freerdp_get_last_error_name(code);
+	if (name && name[0] != '\0')
+		return name;
+	return "UNKNOWN";
+}
+
+static void ohos_session_set_last_error(freerdpOhosSession* session, const char* prefix,
+                                        UINT32 code)
+{
+	const char* name = ohos_session_last_error_name(code);
+	const char* text = ohos_session_last_error_text(code);
+	if (text[0] != '\0')
+	{
+		ohos_session_set_diagnostics(session, "%s: %s [0x%08" PRIX32 "] %s", prefix, name,
+		                             code, text);
+		return;
+	}
+	ohos_session_set_diagnostics(session, "%s: %s [0x%08" PRIX32 "]", prefix, name, code);
+}
+
 static void ohos_session_emit_log(freerdpOhosSession* session, const char* message)
 {
 	if (session && session->callbacks.Log)
@@ -73,6 +112,16 @@ static void ohos_session_emit_state(freerdpOhosSession* session, const char* sta
 		session->callbacks.StateChanged(state, session->callbacks.userData);
 }
 
+static BOOL ohos_session_should_continue(freerdpOhosSession* session)
+{
+	if (!session || session->requestedDisconnect)
+		return FALSE;
+	if (session->callbacks.ShouldContinue &&
+	    !session->callbacks.ShouldContinue(session->callbacks.userData))
+		return FALSE;
+	return TRUE;
+}
+
 static BOOL ohos_session_require_connected(freerdpOhosSession* session, char* message,
                                            size_t messageSize)
 {
@@ -81,10 +130,166 @@ static BOOL ohos_session_require_connected(freerdpOhosSession* session, char* me
 		ohos_session_format_message(message, messageSize, "OHOS session is null");
 		return FALSE;
 	}
-	if (!session->connected)
+	if (!session->connected || !session->instance || !session->instance->context ||
+	    !session->instance->context->input)
 	{
 		ohos_session_set_diagnostics(session, "OHOS session is not connected");
 		ohos_session_copy_diagnostics(session, message, messageSize);
+		return FALSE;
+	}
+	return TRUE;
+}
+
+static BOOL ohos_session_validate_options(freerdpOhosSession* session,
+                                          const FREERDP_OHOS_SESSION_OPTIONS* options,
+                                          char* message, size_t messageSize)
+{
+	if (!options)
+	{
+		ohos_session_set_diagnostics(session, "OHOS session options are required");
+		ohos_session_copy_diagnostics(session, message, messageSize);
+		return FALSE;
+	}
+	if (!options->connection.serverHostname || options->connection.serverHostname[0] == '\0' ||
+	    !options->connection.username || options->connection.username[0] == '\0')
+	{
+		ohos_session_set_diagnostics(session,
+		                             "OHOS session connect validation failed: host and username "
+		                             "are required");
+		ohos_session_emit_error(session, session->diagnostics);
+		ohos_session_copy_diagnostics(session, message, messageSize);
+		return FALSE;
+	}
+	return TRUE;
+}
+
+static void ohos_session_cleanup(freerdpOhosSession* session)
+{
+	if (!session)
+		return;
+
+	freerdp* instance = session->instance;
+	rdpContext* context = instance ? instance->context : NULL;
+
+	if (session->contextCreated && context)
+	{
+		freerdp_abort_connect_context(context);
+		freerdp_disconnect(instance);
+	}
+
+	if (session->teardownPending && session->callbacks.Teardown)
+		session->callbacks.Teardown(instance, context, session->callbacks.userData);
+	session->teardownPending = FALSE;
+
+	if (session->contextCreated && context)
+		freerdp_context_free(instance);
+
+	if (instance)
+		freerdp_free(instance);
+
+	session->instance = NULL;
+	session->contextCreated = FALSE;
+	session->connected = FALSE;
+}
+
+static BOOL ohos_session_enable_client_channels(freerdpOhosSession* session)
+{
+	if (!session || !session->instance)
+		return FALSE;
+
+	if (freerdp_register_addin_provider(freerdp_channels_load_static_addin_entry, 0) != 0)
+	{
+		ohos_session_set_diagnostics(session, "freerdp_register_addin_provider failed");
+		return FALSE;
+	}
+
+	session->instance->LoadChannels = freerdp_client_load_channels;
+	ohos_session_emit_log(session, "FreeRDP client channel loader registered by OHOS session");
+	return TRUE;
+}
+
+static BOOL ohos_session_apply_options(freerdpOhosSession* session,
+                                       const FREERDP_OHOS_SESSION_OPTIONS* options)
+{
+	rdpContext* context = session->instance ? session->instance->context : NULL;
+	rdpSettings* settings = context ? context->settings : NULL;
+	char detail[256] = { 0 };
+
+	if (!settings)
+	{
+		ohos_session_set_diagnostics(session, "FreeRDP settings unavailable");
+		return FALSE;
+	}
+
+	if (!freerdp_ohos_session_apply_connection_settings(settings, &options->connection, detail,
+	                                                    sizeof(detail)))
+	{
+		ohos_session_set_diagnostics(session, "%s",
+		                             detail[0] == '\0'
+		                                 ? "FreeRDP OHOS connection settings helper failed"
+		                                 : detail);
+		return FALSE;
+	}
+	ohos_session_emit_log(session, "OHOS FreeRDP connection settings applied by session API");
+
+	memset(detail, 0, sizeof(detail));
+	if (!freerdp_ohos_session_apply_settings(settings, &options->session, detail, sizeof(detail)))
+	{
+		ohos_session_set_diagnostics(
+		    session, "%s",
+		    detail[0] == '\0' ? "FreeRDP OHOS session settings helper failed" : detail);
+		return FALSE;
+	}
+	ohos_session_emit_log(session,
+	                      detail[0] == '\0' ? "OHOS FreeRDP settings applied by session API"
+	                                        : detail);
+
+	memset(detail, 0, sizeof(detail));
+	if (!freerdp_ohos_session_add_standard_channels(settings, &options->session, detail,
+	                                                sizeof(detail)))
+	{
+		ohos_session_set_diagnostics(
+		    session, "%s",
+		    detail[0] == '\0' ? "FreeRDP OHOS standard channel helper failed" : detail);
+		return FALSE;
+	}
+	ohos_session_emit_log(session,
+	                      detail[0] == '\0'
+	                          ? "OHOS FreeRDP standard channels added by session API"
+	                          : detail);
+	return TRUE;
+}
+
+static BOOL ohos_session_configure(freerdpOhosSession* session,
+                                   const FREERDP_OHOS_SESSION_OPTIONS* options)
+{
+	char detail[256] = { 0 };
+
+	session->instance = freerdp_new();
+	if (!session->instance)
+	{
+		ohos_session_set_diagnostics(session, "freerdp_new failed");
+		return FALSE;
+	}
+
+	if (!freerdp_context_new(session->instance))
+	{
+		ohos_session_set_diagnostics(session, "freerdp_context_new failed");
+		return FALSE;
+	}
+	session->contextCreated = TRUE;
+
+	if (!ohos_session_enable_client_channels(session) || !ohos_session_apply_options(session, options))
+		return FALSE;
+
+	session->teardownPending = TRUE;
+	if (session->callbacks.Configure &&
+	    !session->callbacks.Configure(session->instance, session->instance->context, options,
+	                                  detail, sizeof(detail), session->callbacks.userData))
+	{
+		ohos_session_set_diagnostics(
+		    session, "%s",
+		    detail[0] == '\0' ? "OHOS session configure callback failed" : detail);
 		return FALSE;
 	}
 	return TRUE;
@@ -112,7 +317,9 @@ void freerdp_ohos_session_free(freerdpOhosSession* session)
 	if (!session)
 		return;
 
-	freerdp_ohos_session_disconnect(session);
+	if (session->instance)
+		freerdp_ohos_session_disconnect(session);
+	ohos_session_cleanup(session);
 	freerdp_ohos_keyboard_state_free(session->keyboard);
 	free(session);
 }
@@ -122,14 +329,16 @@ BOOL freerdp_ohos_session_connect(freerdpOhosSession* session,
                                   const FREERDP_OHOS_SESSION_CALLBACKS* callbacks,
                                   char* message, size_t messageSize)
 {
+	BOOL success = FALSE;
+
 	if (!session)
 	{
 		ohos_session_format_message(message, messageSize, "OHOS session is null");
 		return FALSE;
 	}
-	if (!options)
+	if (session->instance)
 	{
-		ohos_session_set_diagnostics(session, "OHOS session options are required");
+		ohos_session_set_diagnostics(session, "OHOS session is already running");
 		ohos_session_copy_diagnostics(session, message, messageSize);
 		return FALSE;
 	}
@@ -140,27 +349,138 @@ BOOL freerdp_ohos_session_connect(freerdpOhosSession* session,
 		memset(&session->callbacks, 0, sizeof(session->callbacks));
 
 	session->connectAttempted = TRUE;
+	session->requestedDisconnect = FALSE;
 	session->connected = FALSE;
 	freerdp_ohos_keyboard_state_reset(session->keyboard);
 
-	if (!options->connection.serverHostname || options->connection.serverHostname[0] == '\0' ||
-	    !options->connection.username || options->connection.username[0] == '\0')
+	if (!ohos_session_validate_options(session, options, message, messageSize))
+		return FALSE;
+
+	ohos_session_emit_state(session, "Configuring");
+	if (!ohos_session_configure(session, options))
 	{
-		ohos_session_set_diagnostics(session,
-		                             "OHOS session connect validation failed: host and username "
-		                             "are required");
 		ohos_session_emit_error(session, session->diagnostics);
 		ohos_session_copy_diagnostics(session, message, messageSize);
+		ohos_session_cleanup(session);
 		return FALSE;
 	}
 
-	ohos_session_set_diagnostics(
-	    session,
-	    "OHOS session API skeleton is present; HAP still owns the FreeRDP event loop until T03");
-	ohos_session_emit_state(session, "Idle");
-	ohos_session_emit_log(session, session->diagnostics);
+	ohos_session_emit_state(session, "Connecting");
+	ohos_session_emit_log(session, "starting FreeRDP connect from OHOS session API");
+	const BOOL rc = freerdp_connect(session->instance);
+	UINT32 lastError = session->instance && session->instance->context
+	                       ? freerdp_get_last_error(session->instance->context)
+	                       : UINT32_MAX;
+	ohos_session_emit_log(session, rc ? "freerdp_connect returned true"
+	                                  : "freerdp_connect returned false");
+
+	if (!ohos_session_should_continue(session))
+	{
+		ohos_session_set_diagnostics(session, "FreeRDP connect cancelled");
+		ohos_session_copy_diagnostics(session, message, messageSize);
+		ohos_session_cleanup(session);
+		return FALSE;
+	}
+
+	if (!rc)
+	{
+		ohos_session_set_last_error(session, "FreeRDP connect failed", lastError);
+		ohos_session_emit_error(session, session->diagnostics);
+		ohos_session_copy_diagnostics(session, message, messageSize);
+		ohos_session_cleanup(session);
+		return FALSE;
+	}
+
+	session->connected = TRUE;
+	ohos_session_set_diagnostics(session, "FreeRDP session connected");
+	ohos_session_emit_state(session, "Connected");
+	if (session->callbacks.Connected)
+		session->callbacks.Connected(session->instance, session->instance->context,
+		                             session->callbacks.userData);
+	ohos_session_emit_log(session, "FreeRDP event loop started by OHOS session API");
+
+	while (ohos_session_should_continue(session) &&
+	       !freerdp_shall_disconnect_context(session->instance->context))
+	{
+		if (session->callbacks.Pump &&
+		    !session->callbacks.Pump(session->instance, session->instance->context,
+		                             session->callbacks.userData))
+		{
+			ohos_session_set_diagnostics(session, "OHOS session pump callback failed");
+			break;
+		}
+
+		HANDLE handles[MAXIMUM_WAIT_OBJECTS] = { 0 };
+		DWORD count =
+		    freerdp_get_event_handles(session->instance->context, handles, MAXIMUM_WAIT_OBJECTS);
+		if (count == 0)
+		{
+			lastError = freerdp_get_last_error(session->instance->context);
+			ohos_session_set_last_error(session, "freerdp_get_event_handles failed", lastError);
+			break;
+		}
+
+		const DWORD waitStatus = WaitForMultipleObjects(count, handles, FALSE, 5);
+		if (!ohos_session_should_continue(session))
+		{
+			ohos_session_set_diagnostics(session, "FreeRDP session cancelled");
+			break;
+		}
+
+		if (waitStatus == WAIT_TIMEOUT)
+			continue;
+
+		if (waitStatus == WAIT_FAILED)
+		{
+			ohos_session_set_diagnostics(session, "WaitForMultipleObjects failed: 0x%08" PRIX32,
+			                             (UINT32)waitStatus);
+			break;
+		}
+
+		if (!freerdp_check_event_handles(session->instance->context))
+		{
+			lastError = freerdp_get_last_error(session->instance->context);
+			if (lastError == FREERDP_ERROR_SUCCESS)
+			{
+				ohos_session_set_diagnostics(session, "FreeRDP event loop stopped without error");
+				success = TRUE;
+			}
+			else if (options->session.h264 && lastError == ERROR_NOT_SUPPORTED)
+			{
+				ohos_session_set_diagnostics(
+				    session,
+				    "FreeRDP graphics negotiation failed: server did not confirm requested RDPGFX H264 mode");
+			}
+			else
+			{
+				ohos_session_set_last_error(session, "FreeRDP event loop failed", lastError);
+			}
+			break;
+		}
+
+		if (session->callbacks.Pump)
+			(void)session->callbacks.Pump(session->instance, session->instance->context,
+			                              session->callbacks.userData);
+	}
+
+	if (!ohos_session_should_continue(session))
+		ohos_session_set_diagnostics(session, "FreeRDP session cancelled");
+
+	if (ohos_session_should_continue(session) && session->connected &&
+	    session->diagnostics[0] != '\0' &&
+	    strcmp(session->diagnostics, "FreeRDP session connected") == 0)
+	{
+		ohos_session_set_diagnostics(session, "FreeRDP session ended");
+		success = TRUE;
+	}
+
 	ohos_session_copy_diagnostics(session, message, messageSize);
-	return FALSE;
+	if (!success && ohos_session_should_continue(session))
+		ohos_session_emit_error(session, session->diagnostics);
+
+	ohos_session_cleanup(session);
+	ohos_session_emit_state(session, "Disconnected");
+	return success;
 }
 
 void freerdp_ohos_session_disconnect(freerdpOhosSession* session)
@@ -168,8 +488,11 @@ void freerdp_ohos_session_disconnect(freerdpOhosSession* session)
 	if (!session)
 		return;
 
+	session->requestedDisconnect = TRUE;
 	session->connected = FALSE;
 	freerdp_ohos_keyboard_state_reset(session->keyboard);
+	if (session->instance && session->instance->context)
+		freerdp_abort_connect_context(session->instance->context);
 	ohos_session_set_diagnostics(session, "OHOS session disconnected");
 	ohos_session_emit_state(session, "Disconnected");
 }
@@ -186,10 +509,17 @@ BOOL freerdp_ohos_session_send_pointer(freerdpOhosSession* session,
 	if (!freerdp_ohos_pointer_build_event(viewport, event, &packet, message, messageSize))
 		return FALSE;
 
-	ohos_session_set_diagnostics(session,
-	                             "OHOS session pointer packet built; FreeRDP dispatch pending T03");
+	rdpInput* input = session->instance->context->input;
+	if (!freerdp_input_send_mouse_event(input, packet.flags, packet.x, packet.y))
+	{
+		ohos_session_set_diagnostics(session, "OHOS session pointer dispatch failed");
+		ohos_session_copy_diagnostics(session, message, messageSize);
+		return FALSE;
+	}
+
+	ohos_session_set_diagnostics(session, "OHOS session pointer dispatched");
 	ohos_session_copy_diagnostics(session, message, messageSize);
-	return FALSE;
+	return TRUE;
 }
 
 BOOL freerdp_ohos_session_send_key(freerdpOhosSession* session,
@@ -210,11 +540,23 @@ BOOL freerdp_ohos_session_send_key(freerdpOhosSession* session,
 		return FALSE;
 	}
 
-	ohos_session_set_diagnostics(
-	    session, "OHOS session key packets built: count=%zu; FreeRDP dispatch pending T03",
-	    count);
+	rdpInput* input = session->instance->context->input;
+	size_t sent = 0;
+	for (size_t index = 0; index < count; ++index)
+	{
+		const FREERDP_OHOS_KEY_PACKET* packet = &packets[index];
+		if (packet->rdpScancode == 0)
+			continue;
+		if (freerdp_input_send_keyboard_event_ex(input, packet->down ? TRUE : FALSE,
+		                                         packet->repeat ? TRUE : FALSE,
+		                                         packet->rdpScancode))
+			++sent;
+	}
+
+	ohos_session_set_diagnostics(session, "OHOS session key packets dispatched: sent=%zu/%zu",
+	                             sent, count);
 	ohos_session_copy_diagnostics(session, message, messageSize);
-	return FALSE;
+	return sent == count ? TRUE : FALSE;
 }
 
 BOOL freerdp_ohos_session_send_text(freerdpOhosSession* session, const uint16_t* text,
@@ -235,11 +577,21 @@ BOOL freerdp_ohos_session_send_text(freerdpOhosSession* session, const uint16_t*
 		return FALSE;
 	}
 
-	(void)freerdp_ohos_ime_format_committed_text_result(length, count, skipped,
+	rdpInput* input = session->instance->context->input;
+	size_t sent = 0;
+	for (size_t index = 0; index < count; ++index)
+	{
+		const UINT16 flags = packets[index].down ? 0 : KBD_FLAGS_RELEASE;
+		if (freerdp_input_send_unicode_keyboard_event(input, flags,
+		                                              (UINT16)packets[index].codeUnit))
+			++sent;
+	}
+
+	(void)freerdp_ohos_ime_format_committed_text_result(length, sent, skipped,
 	                                                    session->diagnostics,
 	                                                    sizeof(session->diagnostics));
 	ohos_session_copy_diagnostics(session, message, messageSize);
-	return FALSE;
+	return sent == count ? TRUE : FALSE;
 }
 
 BOOL freerdp_ohos_session_resize(freerdpOhosSession* session, UINT32 width, UINT32 height,
@@ -257,7 +609,7 @@ BOOL freerdp_ohos_session_resize(freerdpOhosSession* session, UINT32 width, UINT
 	ohos_session_set_diagnostics(
 	    session,
 	    "OHOS session resize requested: %" PRIu32 "x%" PRIu32
-	    "; display-control dispatch pending T03",
+	    "; display-control dispatch is owned by the caller until T10",
 	    width, height);
 	ohos_session_copy_diagnostics(session, message, messageSize);
 	return FALSE;

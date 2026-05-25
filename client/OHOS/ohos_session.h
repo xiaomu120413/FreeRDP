@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include <freerdp/api.h>
+#include <freerdp/freerdp.h>
 #include <winpr/wtypes.h>
 
 #include "ohos_ime.h"
@@ -21,8 +22,16 @@ typedef struct freerdp_ohos_session freerdpOhosSession;
 
 typedef void (*FREERDP_OHOS_SESSION_MESSAGE_CALLBACK)(const char* message, void* userData);
 typedef void (*FREERDP_OHOS_SESSION_STATE_CALLBACK)(const char* state, void* userData);
+typedef BOOL (*FREERDP_OHOS_SESSION_CONFIGURE_CALLBACK)(
+    freerdp* instance, rdpContext* context, const struct freerdp_ohos_session_options* options,
+    char* message, size_t messageSize, void* userData);
+typedef void (*FREERDP_OHOS_SESSION_CONTEXT_CALLBACK)(freerdp* instance, rdpContext* context,
+                                                      void* userData);
+typedef BOOL (*FREERDP_OHOS_SESSION_PUMP_CALLBACK)(freerdp* instance, rdpContext* context,
+                                                   void* userData);
+typedef BOOL (*FREERDP_OHOS_SESSION_CONTINUE_CALLBACK)(void* userData);
 
-typedef struct
+typedef struct freerdp_ohos_session_options
 {
 	FREERDP_OHOS_CONNECTION_CONFIG connection;
 	FREERDP_OHOS_SESSION_CONFIG session;
@@ -35,6 +44,11 @@ typedef struct
 	FREERDP_OHOS_SESSION_STATE_CALLBACK StateChanged;
 	FREERDP_OHOS_SESSION_MESSAGE_CALLBACK Log;
 	FREERDP_OHOS_SESSION_MESSAGE_CALLBACK Error;
+	FREERDP_OHOS_SESSION_CONFIGURE_CALLBACK Configure;
+	FREERDP_OHOS_SESSION_CONTEXT_CALLBACK Connected;
+	FREERDP_OHOS_SESSION_PUMP_CALLBACK Pump;
+	FREERDP_OHOS_SESSION_CONTINUE_CALLBACK ShouldContinue;
+	FREERDP_OHOS_SESSION_CONTEXT_CALLBACK Teardown;
 	void* userData;
 } FREERDP_OHOS_SESSION_CALLBACKS;
 

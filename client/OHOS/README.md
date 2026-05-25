@@ -45,9 +45,9 @@ Current contents:
   passes host/user input and the selected graphics mode, then receives log
   strings without hard-coding those FreeRDP/channel parameters.
 - `ohos_session.*`: defines the public opaque HarmonyOS session API surface.
-  T02 exports the ABI and validation/diagnostics skeleton while the HAP
-  validation shell still owns the worker thread and FreeRDP event loop. T03 will
-  move the event-loop implementation behind this API.
+  It owns the FreeRDP instance/context lifecycle, standard OHOS settings,
+  channel requests, connect/disconnect and event loop. The HAP supplies UI,
+  surface, certificate, clipboard and input-pump callbacks.
 
 Planned migration:
 
