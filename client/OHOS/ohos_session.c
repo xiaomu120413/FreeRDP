@@ -17,6 +17,7 @@
 #include <freerdp/client.h>
 #include <freerdp/client/channels.h>
 #include <freerdp/error.h>
+#include <winpr/collections.h>
 #include <winpr/synch.h>
 
 static void ohos_session_format_message(char* message, size_t size, const char* format, ...)
@@ -98,6 +99,11 @@ static void ohos_session_emit_state(freerdpOhosSession* session, const char* sta
 {
 	if (session && session->callbacks.StateChanged)
 		session->callbacks.StateChanged(state, session->callbacks.userData);
+}
+
+static void ohos_session_location_log(void* userData, const char* message)
+{
+	ohos_session_emit_log((freerdpOhosSession*)userData, message);
 }
 
 static void ohos_session_certificate_log(const char* message, void* userData)
@@ -182,6 +188,8 @@ static void ohos_session_cleanup(freerdpOhosSession* session)
 		session->callbacks.Teardown(instance, context, session->callbacks.userData);
 	session->teardownPending = FALSE;
 
+	freerdp_ohos_location_unregister(session->location);
+
 	if (instance)
 		freerdp_ohos_certificate_unregister_callbacks(instance);
 
@@ -209,6 +217,30 @@ static BOOL ohos_session_enable_client_channels(freerdpOhosSession* session)
 
 	session->instance->LoadChannels = freerdp_client_load_channels;
 	ohos_session_emit_log(session, "FreeRDP client channel loader registered by OHOS session");
+	return TRUE;
+}
+
+static BOOL ohos_session_register_location(freerdpOhosSession* session)
+{
+	if (!session || !session->location || !session->instance || !session->instance->context)
+		return FALSE;
+
+	FREERDP_OHOS_LOCATION_CONFIG config = { 0 };
+	config.PubSubSubscribe = PubSub_Subscribe;
+	config.PubSubUnsubscribe = PubSub_Unsubscribe;
+	config.Log = ohos_session_location_log;
+	config.logUserData = session;
+
+	char detail[256] = { 0 };
+	if (!freerdp_ohos_location_register(session->location, session->instance->context, &config,
+	                                    detail, sizeof(detail)))
+	{
+		ohos_session_set_diagnostics(
+		    session, "%s",
+		    detail[0] == '\0' ? "OHOS location bridge registration failed" : detail);
+		return FALSE;
+	}
+	ohos_session_emit_log(session, "OHOS location bridge registered");
 	return TRUE;
 }
 
@@ -296,7 +328,8 @@ static BOOL ohos_session_configure(freerdpOhosSession* session,
 	}
 	session->contextCreated = TRUE;
 
-	if (!ohos_session_enable_client_channels(session) || !ohos_session_apply_options(session, options))
+	if (!ohos_session_register_location(session) || !ohos_session_enable_client_channels(session) ||
+	    !ohos_session_apply_options(session, options))
 		return FALSE;
 
 	if (!freerdp_ohos_certificate_register_callbacks(
@@ -333,11 +366,13 @@ freerdpOhosSession* freerdp_ohos_session_new(void)
 	session->keyboard = freerdp_ohos_keyboard_state_new();
 	session->inputQueue = freerdp_ohos_input_queue_new();
 	session->displayControl = freerdp_ohos_display_control_new();
-	if (!session->keyboard || !session->inputQueue || !session->displayControl)
+	session->location = freerdp_ohos_location_new();
+	if (!session->keyboard || !session->inputQueue || !session->displayControl || !session->location)
 	{
 		freerdp_ohos_keyboard_state_free(session->keyboard);
 		freerdp_ohos_input_queue_free(session->inputQueue);
 		freerdp_ohos_display_control_free(session->displayControl);
+		freerdp_ohos_location_free(session->location);
 		free(session);
 		return NULL;
 	}
@@ -357,6 +392,7 @@ void freerdp_ohos_session_free(freerdpOhosSession* session)
 	freerdp_ohos_keyboard_state_free(session->keyboard);
 	freerdp_ohos_input_queue_free(session->inputQueue);
 	freerdp_ohos_display_control_free(session->displayControl);
+	freerdp_ohos_location_free(session->location);
 	free(session);
 }
 

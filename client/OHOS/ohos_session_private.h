@@ -4,6 +4,7 @@
 #include "ohos_session.h"
 #include "ohos_display.h"
 #include "ohos_input_queue.h"
+#include "ohos_location.h"
 
 struct freerdp_ohos_session
 {
@@ -16,6 +17,7 @@ struct freerdp_ohos_session
 	FREERDP_OHOS_KEYBOARD_STATE* keyboard;
 	freerdpOhosInputQueue* inputQueue;
 	freerdpOhosDisplayControl* displayControl;
+	freerdpOhosLocation* location;
 	char diagnostics[512];
 };
 

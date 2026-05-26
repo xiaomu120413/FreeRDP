@@ -38,6 +38,7 @@ endif()
 if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
   find_library(OHOS_EGL_LIBRARY EGL REQUIRED)
   find_library(OHOS_GLESV3_LIBRARY GLESv3 REQUIRED)
+  find_library(OHOS_LOCATION_NDK_LIBRARY location_ndk REQUIRED)
   set(FREERDP_OHOS_PUBLIC_HEADERS
       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_audio.h
       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_avc420_route.h
@@ -48,6 +49,7 @@ if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_ime.h
       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_input_queue.h
       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_keyboard.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_location.h
       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_pointer.h
       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx.h
       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session.h
@@ -61,6 +63,7 @@ if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_ime.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_input_queue.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_keyboard.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_location.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_pointer.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx_avc420.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx_avc444_policy.c
@@ -73,7 +76,7 @@ if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_display.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_input.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_options.c)
-  list(APPEND PRIV_LIBS ${OHOS_EGL_LIBRARY} ${OHOS_GLESV3_LIBRARY})
+  list(APPEND PRIV_LIBS ${OHOS_EGL_LIBRARY} ${OHOS_GLESV3_LIBRARY} ${OHOS_LOCATION_NDK_LIBRARY})
 endif()
 
 if(WITH_OHOS_PASTEBOARD)

@@ -20,6 +20,7 @@ typedef struct
 	BOOL h264;
 	BOOL clipboard;
 	BOOL displayControl;
+	BOOL location;
 	BOOL audioPlayback;
 	BOOL audioCapture;
 	UINT32 audioPlaybackRate;

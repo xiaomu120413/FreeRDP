@@ -1647,7 +1647,7 @@ UINT32 freerdp_settings_get_uint32(WINPR_ATTR_UNUSED const rdpSettings* settings
 {
 	WINPR_ASSERT(settings);
 
-	switch (id)
+	switch ((UINT32)id)
 	{
 		case FreeRDP_AcceptedCertLength:
 			return settings->AcceptedCertLength;
@@ -2056,7 +2056,7 @@ BOOL freerdp_settings_set_uint32(WINPR_ATTR_UNUSED rdpSettings* settings,
 
 	cnv.c = val;
 
-	switch (id)
+	switch ((UINT32)id)
 	{
 		case FreeRDP_AcceptedCertLength:
 			settings->AcceptedCertLength = cnv.c;
