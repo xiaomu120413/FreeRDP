@@ -210,6 +210,43 @@ UINT32 freerdp_ohos_rdpgfx_avc444_chroma_v1_required_y_height(const RECTANGLE_16
 	return required;
 }
 
+void ohos_rdpgfx_set_avc444_gpu_output_active(freerdpOhosRdpgfxBridge* bridge, BOOL active,
+                                              const char* reason)
+{
+	FREERDP_OHOS_RDPGFX_AVC444_OUTPUT_STATE_CALLBACK callback = NULL;
+	void* userData = NULL;
+	BOOL changed = FALSE;
+	UINT64 activations = 0;
+	UINT64 releases = 0;
+
+	if (!bridge)
+		return;
+
+	EnterCriticalSection(&bridge->lock);
+	if (bridge->avc444GpuOutputActive != active)
+	{
+		bridge->avc444GpuOutputActive = active;
+		if (active)
+			activations = ++bridge->avc444GpuOutputActivations;
+		else
+			releases = ++bridge->avc444GpuOutputReleases;
+		changed = TRUE;
+		callback = bridge->avc444OutputState;
+		userData = bridge->userData;
+	}
+	LeaveCriticalSection(&bridge->lock);
+
+	if (!changed)
+		return;
+	if (callback)
+		callback(active, reason ? reason : "AVC444 GPU output state changed", userData);
+	ohos_rdpgfx_log(bridge,
+	                "AVC444 GPU output owner changed by FreeRDP policy: active=%s "
+	                "reason=%s activations=%" PRIu64 " releases=%" PRIu64,
+	                active ? "yes" : "no", reason ? reason : "AVC444 GPU output state changed",
+	                activations, releases);
+}
+
 static UINT ohos_rdpgfx_validate_avc444_gpu_surface_update(freerdpOhosRdpgfxBridge* bridge,
                                                            RdpgfxClientContext* context,
                                                            const RDPGFX_SURFACE_COMMAND* command,
@@ -384,6 +421,8 @@ BOOL ohos_rdpgfx_record_avc444_gpu_candidate(freerdpOhosRdpgfxBridge* bridge,
 
 		if (callbackReady)
 		{
+			ohos_rdpgfx_set_avc444_gpu_output_active(
+			    bridge, TRUE, "AVC444 GPU command handled; FreeRDP suppresses native GDI");
 			if (!frameOpen)
 			{
 				if (endFrameCallback)
@@ -415,6 +454,20 @@ BOOL ohos_rdpgfx_record_avc444_gpu_candidate(freerdpOhosRdpgfxBridge* bridge,
 	}
 
 	EnterCriticalSection(&bridge->lock);
+	if (bridge->avc444GpuOutputActive)
+	{
+		const UINT64 suppressedFailures = ++bridge->avc444GpuActiveSuppressedFailures;
+		LeaveCriticalSection(&bridge->lock);
+		ohos_rdpgfx_log(
+		    bridge,
+		    "AVC444 GPU compositor callback did not handle command while GPU output is active; "
+		    "FreeRDP policy keeps native GDI suppressed to avoid re-entering stale AVC444 state: "
+		    "codec=%s surface=%" PRIu32 " frame=%" PRIu32 " LC=%" PRIu32
+		    " activeSuppressed=%" PRIu64,
+		    freerdp_ohos_rdpgfx_codec_name(command->codecId), command->surfaceId, frameId, lc,
+		    suppressedFailures);
+		return TRUE;
+	}
 	gdiPreserved = ++bridge->avc444GpuGdiPreserved;
 	LeaveCriticalSection(&bridge->lock);
 

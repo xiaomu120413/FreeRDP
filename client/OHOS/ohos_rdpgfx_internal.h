@@ -70,6 +70,7 @@ struct freerdp_ohos_rdpgfx_bridge
 	FREERDP_OHOS_RDPGFX_AVC420_SURFACE_CALLBACK avc420SurfaceCommand;
 	FREERDP_OHOS_RDPGFX_AVC444_SURFACE_CALLBACK avc444SurfaceCommand;
 	FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK avc444EndFrame;
+	FREERDP_OHOS_RDPGFX_AVC444_OUTPUT_STATE_CALLBACK avc444OutputState;
 	void* userData;
 	UINT32 connected;
 	UINT32 disconnected;
@@ -95,6 +96,10 @@ struct freerdp_ohos_rdpgfx_bridge
 	UINT64 avc444GpuFrameMismatchSkips;
 	UINT64 avc444GpuCallbacks;
 	UINT64 avc444GpuCallbackReady;
+	BOOL avc444GpuOutputActive;
+	UINT64 avc444GpuOutputActivations;
+	UINT64 avc444GpuOutputReleases;
+	UINT64 avc444GpuActiveSuppressedFailures;
 	UINT32 capsAdvertises;
 	UINT32 advertisedCapsSets;
 	BOOL advertisedAvc420;
@@ -166,6 +171,8 @@ BOOL ohos_rdpgfx_record_avc444_gpu_candidate(freerdpOhosRdpgfxBridge* bridge,
                                              RdpgfxClientContext* context,
                                              const RDPGFX_SURFACE_COMMAND* command,
                                              UINT* consumedStatus);
+void ohos_rdpgfx_set_avc444_gpu_output_active(freerdpOhosRdpgfxBridge* bridge, BOOL active,
+                                              const char* reason);
 
 UINT ohos_rdpgfx_start_frame(RdpgfxClientContext* context,
                              const RDPGFX_START_FRAME_PDU* startFrame);

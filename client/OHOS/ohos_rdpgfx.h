@@ -63,6 +63,9 @@ typedef BOOL (*FREERDP_OHOS_RDPGFX_AVC444_SURFACE_CALLBACK)(
     const FREERDP_OHOS_RDPGFX_AVC444_COMMAND_INFO* command, void* userData);
 typedef BOOL (*FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK)(
     const FREERDP_OHOS_RDPGFX_FRAME_INFO* frame, void* userData);
+typedef void (*FREERDP_OHOS_RDPGFX_AVC444_OUTPUT_STATE_CALLBACK)(BOOL active,
+                                                                 const char* reason,
+                                                                 void* userData);
 
 typedef struct
 {
@@ -74,6 +77,7 @@ typedef struct
 	FREERDP_OHOS_RDPGFX_AVC420_SURFACE_CALLBACK avc420SurfaceCommand;
 	FREERDP_OHOS_RDPGFX_AVC444_SURFACE_CALLBACK avc444SurfaceCommand;
 	FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK avc444EndFrame;
+	FREERDP_OHOS_RDPGFX_AVC444_OUTPUT_STATE_CALLBACK avc444OutputState;
 	void* userData;
 } FREERDP_OHOS_RDPGFX_BRIDGE_CONFIG;
 

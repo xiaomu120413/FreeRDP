@@ -195,6 +195,7 @@ void freerdp_ohos_rdpgfx_bridge_reset(freerdpOhosRdpgfxBridge* bridge, BOOL requ
 	bridge->avc420SurfaceActive = FALSE;
 	bridge->avc444GpuCompositor = FALSE;
 	bridge->avc444EndFrame = NULL;
+	bridge->avc444OutputState = NULL;
 	bridge->connected = 0;
 	bridge->disconnected = 0;
 	bridge->initFailed = 0;
@@ -221,6 +222,10 @@ void freerdp_ohos_rdpgfx_bridge_reset(freerdpOhosRdpgfxBridge* bridge, BOOL requ
 	bridge->avc444GpuFrameMismatchSkips = 0;
 	bridge->avc444GpuCallbacks = 0;
 	bridge->avc444GpuCallbackReady = 0;
+	bridge->avc444GpuOutputActive = FALSE;
+	bridge->avc444GpuOutputActivations = 0;
+	bridge->avc444GpuOutputReleases = 0;
+	bridge->avc444GpuActiveSuppressedFailures = 0;
 	bridge->capsAdvertises = 0;
 	bridge->advertisedCapsSets = 0;
 	bridge->advertisedAvc420 = FALSE;
@@ -280,6 +285,7 @@ BOOL freerdp_ohos_rdpgfx_bridge_attach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 		bridge->avc420SurfaceCommand = config->avc420SurfaceCommand;
 		bridge->avc444SurfaceCommand = config->avc444SurfaceCommand;
 		bridge->avc444EndFrame = config->avc444EndFrame;
+		bridge->avc444OutputState = config->avc444OutputState;
 		bridge->userData = config->userData;
 		LeaveCriticalSection(&bridge->lock);
 		ohos_rdpgfx_format_message(message, messageSize,
@@ -303,6 +309,7 @@ BOOL freerdp_ohos_rdpgfx_bridge_attach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 	bridge->avc420SurfaceCommand = config->avc420SurfaceCommand;
 	bridge->avc444SurfaceCommand = config->avc444SurfaceCommand;
 	bridge->avc444EndFrame = config->avc444EndFrame;
+	bridge->avc444OutputState = config->avc444OutputState;
 	bridge->userData = config->userData;
 	bridge->connected++;
 	LeaveCriticalSection(&bridge->lock);
@@ -337,6 +344,9 @@ void freerdp_ohos_rdpgfx_bridge_detach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 
 	RdpgfxClientContext* active = NULL;
 	FREERDP_OHOS_RDPGFX_HOOKS hooks = { 0 };
+	FREERDP_OHOS_RDPGFX_AVC444_OUTPUT_STATE_CALLBACK avc444OutputState = NULL;
+	void* userData = NULL;
+	BOOL wasAvc444OutputActive = FALSE;
 	EnterCriticalSection(&bridge->lock);
 	if (bridge->gfx && (!gfx || bridge->gfx == gfx))
 	{
@@ -353,9 +363,19 @@ void freerdp_ohos_rdpgfx_bridge_detach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 		bridge->frameOpen = FALSE;
 		bridge->activeFrameId = 0;
 		bridge->avc444EndFrame = NULL;
+		avc444OutputState = bridge->avc444OutputState;
+		userData = bridge->userData;
+		wasAvc444OutputActive = bridge->avc444GpuOutputActive;
+		bridge->avc444GpuOutputActive = FALSE;
+		if (wasAvc444OutputActive)
+			bridge->avc444GpuOutputReleases++;
+		bridge->avc444OutputState = NULL;
 		bridge->disconnected++;
 	}
 	LeaveCriticalSection(&bridge->lock);
+
+	if (wasAvc444OutputActive && avc444OutputState)
+		avc444OutputState(FALSE, "rdpgfx bridge detached", userData);
 
 	if (!active)
 		return;

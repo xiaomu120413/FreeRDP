@@ -65,6 +65,7 @@ const char* freerdp_ohos_rdpgfx_bridge_get_diagnostics(freerdpOhosRdpgfxBridge* 
 	    " avc444Gpu=compositor:%s,suppressGdi:per-command"
 	    ",candidates:%" PRIu64 ",disabled:%" PRIu64 ",frameMismatch:%" PRIu64
 	    ",gdiPreserved:%" PRIu64 ",callbacks:%" PRIu64 ",callbackReady:%" PRIu64
+	    ",output:%s,activate:%" PRIu64 ",release:%" PRIu64 ",activeSuppressed:%" PRIu64
 	    " avc444Last=frame:%" PRIu32 ",LC:%" PRIu32 ",stream1Rects:%" PRIu32
 	    ",stream2Rects:%" PRIu32 ",stream1Bytes:%" PRIu32 ",stream2Bytes:%" PRIu32,
 	    bridge->requested ? "requested" : "off", bridge->h264Requested ? "requested" : "off",
@@ -85,6 +86,8 @@ const char* freerdp_ohos_rdpgfx_bridge_get_diagnostics(freerdpOhosRdpgfxBridge* 
 	    bridge->avc420SurfaceNoDirect, bridge->avc444GpuCompositor ? "on" : "off",
 	    bridge->avc444GpuCandidates, bridge->avc444GpuDisabled, bridge->avc444GpuFrameMismatchSkips,
 	    bridge->avc444GpuGdiPreserved, bridge->avc444GpuCallbacks, bridge->avc444GpuCallbackReady,
+	    bridge->avc444GpuOutputActive ? "active" : "gdi", bridge->avc444GpuOutputActivations,
+	    bridge->avc444GpuOutputReleases, bridge->avc444GpuActiveSuppressedFailures,
 	    bridge->lastAvc444FrameId, bridge->lastAvc444LC, bridge->lastAvc444Stream1Rects,
 	    bridge->lastAvc444Stream2Rects, bridge->lastAvc444Stream1Bytes,
 	    bridge->lastAvc444Stream2Bytes);
