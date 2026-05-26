@@ -3,7 +3,12 @@
 
 define_channel_client_subsystem("rdpsnd" "ohos" "")
 
-set(${MODULE_PREFIX}_SRCS rdpsnd_ohos.c)
+set(${MODULE_PREFIX}_SRCS
+	rdpsnd_ohos.c
+	rdpsnd_ohos_diagnostics.c
+	rdpsnd_ohos_format.c
+	rdpsnd_ohos_queue.c
+	rdpsnd_ohos_renderer.c)
 
 set(${MODULE_PREFIX}_LIBS winpr freerdp ohaudio)
 
