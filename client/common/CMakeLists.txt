@@ -50,6 +50,7 @@ if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_config.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_display.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_input.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_options.c)
   list(APPEND PRIV_LIBS ${OHOS_EGL_LIBRARY} ${OHOS_GLESV3_LIBRARY})

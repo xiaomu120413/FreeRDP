@@ -5,8 +5,6 @@
 
 #include "ohos_session_private.h"
 
-#include <inttypes.h>
-
 #include <freerdp/input.h>
 
 BOOL freerdp_ohos_session_send_pointer(freerdpOhosSession* session,
@@ -79,27 +77,6 @@ BOOL freerdp_ohos_session_release_all_keys(freerdpOhosSession* session, char* me
 	ohos_session_set_diagnostics(session, "%s", message ? message : "release-all queued");
 	ohos_session_copy_diagnostics(session, message, messageSize);
 	return TRUE;
-}
-
-BOOL freerdp_ohos_session_resize(freerdpOhosSession* session, UINT32 width, UINT32 height,
-                                 char* message, size_t messageSize)
-{
-	if (!ohos_session_require_connected(session, message, messageSize))
-		return FALSE;
-	if (width == 0 || height == 0)
-	{
-		ohos_session_set_diagnostics(session, "OHOS session resize dimensions are invalid");
-		ohos_session_copy_diagnostics(session, message, messageSize);
-		return FALSE;
-	}
-
-	ohos_session_set_diagnostics(
-	    session,
-	    "OHOS session resize requested: %" PRIu32 "x%" PRIu32
-	    "; display-control dispatch is owned by the caller until T10",
-	    width, height);
-	ohos_session_copy_diagnostics(session, message, messageSize);
-	return FALSE;
 }
 
 const char* freerdp_ohos_session_get_diagnostics(freerdpOhosSession* session)

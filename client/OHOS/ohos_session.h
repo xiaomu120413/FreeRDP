@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include <freerdp/api.h>
+#include <freerdp/client/disp.h>
 #include <freerdp/freerdp.h>
 #include <winpr/wtypes.h>
 
@@ -65,6 +66,10 @@ FREERDP_API BOOL freerdp_ohos_session_send_focus_in(freerdpOhosSession* session,
                                                     size_t messageSize);
 FREERDP_API BOOL freerdp_ohos_session_release_all_keys(freerdpOhosSession* session,
                                                        char* message, size_t messageSize);
+FREERDP_API BOOL freerdp_ohos_session_attach_display_control(
+    freerdpOhosSession* session, DispClientContext* disp, char* message, size_t messageSize);
+FREERDP_API void freerdp_ohos_session_detach_display_control(freerdpOhosSession* session,
+                                                             DispClientContext* disp);
 FREERDP_API BOOL freerdp_ohos_session_resize(freerdpOhosSession* session, UINT32 width,
                                              UINT32 height, char* message,
                                              size_t messageSize);
