@@ -32,6 +32,11 @@
 
 #define TAG FREERDP_TAG("core")
 
+#if defined(__OHOS__)
+static void freerdp_input_ohos_trace_keyboard_event(const char* stage, UINT16 flags, UINT8 code,
+                                                    BOOL result);
+#endif
+
 /* Input Events */
 #define INPUT_EVENT_SYNC 0x0000
 #define INPUT_EVENT_SCANCODE 0x0004
@@ -192,7 +197,11 @@ static BOOL input_send_keyboard_event(rdpInput* input, UINT16 flags, UINT8 code)
 		return FALSE;
 
 	input_write_keyboard_event(s, flags, code);
-	return rdp_send_client_input_pdu(rdp, s, sec_flags);
+	const BOOL result = rdp_send_client_input_pdu(rdp, s, sec_flags);
+#if defined(__OHOS__)
+	freerdp_input_ohos_trace_keyboard_event("SlowPathSend", flags, code, result);
+#endif
+	return result;
 }
 
 static void input_write_unicode_keyboard_event(wStream* s, UINT16 flags, UINT16 code)
@@ -432,7 +441,11 @@ static BOOL input_send_fastpath_keyboard_event(rdpInput* input, UINT16 flags, UI
 
 	WINPR_ASSERT(code <= UINT8_MAX);
 	Stream_Write_UINT8(s, code); /* keyCode (1 byte) */
-	return fastpath_send_input_pdu(rdp->fastpath, s, sec_flags);
+	const BOOL result = fastpath_send_input_pdu(rdp->fastpath, s, sec_flags);
+#if defined(__OHOS__)
+	freerdp_input_ohos_trace_keyboard_event("FastPathSend", flags, code, result);
+#endif
+	return result;
 }
 
 static BOOL input_send_fastpath_unicode_keyboard_event(rdpInput* input, UINT16 flags, UINT16 code)
@@ -979,6 +992,41 @@ static const char* boolstr(bool value)
 	return "false";
 }
 
+#if defined(__OHOS__)
+static BOOL freerdp_input_ohos_trace_keyboard_code(UINT8 code)
+{
+	switch (code)
+	{
+		case 0x0E: /* Backspace */
+		case 0x1C: /* Enter */
+		case 0x1D: /* Ctrl */
+		case 0x1E: /* A */
+		case 0x2C: /* Z */
+		case 0x2D: /* X */
+		case 0x2E: /* C */
+		case 0x2F: /* V */
+		case 0x53: /* Delete */
+			return TRUE;
+		default:
+			return FALSE;
+	}
+}
+
+static void freerdp_input_ohos_trace_keyboard_event(const char* stage, UINT16 flags, UINT8 code,
+                                                    BOOL result)
+{
+	if (!freerdp_input_ohos_trace_keyboard_code(code))
+		return;
+
+	WLog_INFO(TAG, "OHOS keyboard core %s: flags=0x%04X code=0x%02X release=%s extended=%s "
+	               "repeat=%s result=%s",
+	          stage, (unsigned int)flags, (unsigned int)code,
+	          boolstr((flags & KBD_FLAGS_RELEASE) != 0),
+	          boolstr((flags & KBD_FLAGS_EXTENDED) != 0),
+	          boolstr((flags & KBD_FLAGS_DOWN) != 0), boolstr(result != FALSE));
+}
+#endif
+
 WINPR_ATTR_NODISCARD
 WINPR_ATTR_FORMAT_ARG(2, 3)
 static BOOL input_skip(const rdpInput* input, WINPR_FORMAT_ARG const char* fmt, ...)
@@ -1036,7 +1084,11 @@ BOOL freerdp_input_send_keyboard_event(rdpInput* input, UINT16 flags, UINT8 code
 
 	input_update_last_event(input, FALSE, 0, 0);
 
-	return IFCALLRESULT(TRUE, input->KeyboardEvent, input, flags, code);
+	const BOOL result = IFCALLRESULT(TRUE, input->KeyboardEvent, input, flags, code);
+#if defined(__OHOS__)
+	freerdp_input_ohos_trace_keyboard_event("KeyboardEvent", flags, code, result);
+#endif
+	return result;
 }
 
 BOOL freerdp_input_send_keyboard_event_ex(rdpInput* input, BOOL down, BOOL repeat,
@@ -1048,7 +1100,11 @@ BOOL freerdp_input_send_keyboard_event_ex(rdpInput* input, BOOL down, BOOL repea
 	else if (!down)
 		flags |= KBD_FLAGS_RELEASE;
 
-	return freerdp_input_send_keyboard_event(input, flags, RDP_SCANCODE_CODE(rdp_scancode));
+	const UINT8 code = RDP_SCANCODE_CODE(rdp_scancode);
+#if defined(__OHOS__)
+	freerdp_input_ohos_trace_keyboard_event("KeyboardEventEx", flags, code, TRUE);
+#endif
+	return freerdp_input_send_keyboard_event(input, flags, code);
 }
 
 BOOL freerdp_input_send_unicode_keyboard_event(rdpInput* input, UINT16 flags, UINT16 code)

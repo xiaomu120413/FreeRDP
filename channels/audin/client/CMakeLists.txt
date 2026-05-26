@@ -41,6 +41,10 @@ if(WITH_OPENSLES)
   add_channel_client_subsystem(${MODULE_PREFIX} ${CHANNEL_NAME} "opensles" "")
 endif()
 
+if(WITH_OHAUDIO)
+  add_channel_client_subsystem(${MODULE_PREFIX} ${CHANNEL_NAME} "ohos" "")
+endif()
+
 if(WITH_WINMM)
   add_channel_client_subsystem(${MODULE_PREFIX} ${CHANNEL_NAME} "winmm" "")
 endif()

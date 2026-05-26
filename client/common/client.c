@@ -38,7 +38,9 @@
 #include <freerdp/client/cmdline.h>
 #include <freerdp/client/channels.h>
 #include <freerdp/event.h>
+#if defined(WITH_SMARTCARD)
 #include <freerdp/utils/smartcardlogon.h>
+#endif
 
 #if defined(CHANNEL_AINPUT_CLIENT)
 #include <freerdp/client/ainput.h>
@@ -83,7 +85,11 @@ static void set_default_callbacks(freerdp* instance)
 {
 	WINPR_ASSERT(instance);
 	instance->AuthenticateEx = client_cli_authenticate_ex;
+#if defined(WITH_SMARTCARD)
 	instance->ChooseSmartcard = client_cli_choose_smartcard;
+#else
+	instance->ChooseSmartcard = nullptr;
+#endif
 	instance->VerifyCertificateEx = client_cli_verify_certificate_ex;
 	instance->VerifyChangedCertificateEx = client_cli_verify_changed_certificate_ex;
 	instance->PresentGatewayMessage = client_cli_present_gateway_message;
@@ -320,12 +326,17 @@ static BOOL freerdp_client_settings_post_process(rdpSettings* settings)
 	/* deal with the smartcard / smartcard logon stuff */
 	if (freerdp_settings_get_bool(settings, FreeRDP_SmartcardLogon))
 	{
+#if defined(WITH_SMARTCARD)
 		if (!freerdp_settings_set_bool(settings, FreeRDP_RedirectSmartCards, TRUE))
 			goto out_error;
 		if (!freerdp_settings_set_bool(settings, FreeRDP_DeviceRedirection, TRUE))
 			goto out_error;
 		if (!freerdp_settings_set_bool(settings, FreeRDP_PasswordIsSmartcardPin, TRUE))
 			goto out_error;
+#else
+		WLog_ERR(TAG, "Smartcard logon support is disabled in this build");
+		goto out_error;
+#endif
 	}
 
 	return TRUE;
@@ -658,6 +669,7 @@ BOOL client_cli_authenticate_ex(freerdp* instance, char** username, char** passw
 	return client_cli_authenticate_raw(instance, reason, username, password, domain);
 }
 
+#if defined(WITH_SMARTCARD)
 BOOL client_cli_choose_smartcard(WINPR_ATTR_UNUSED freerdp* instance, SmartcardCertInfo** cert_list,
                                  DWORD count, DWORD* choice, BOOL gateway)
 {
@@ -701,6 +713,7 @@ BOOL client_cli_choose_smartcard(WINPR_ATTR_UNUSED freerdp* instance, SmartcardC
 		}
 	}
 }
+#endif
 
 #if defined(WITH_FREERDP_DEPRECATED)
 BOOL client_cli_authenticate(freerdp* instance, char** username, char** password, char** domain)

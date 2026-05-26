@@ -30,6 +30,7 @@
 
 #include <winpr/crt.h>
 #include <winpr/cmdline.h>
+#include <winpr/synch.h>
 #include <winpr/wlog.h>
 
 #include <freerdp/addin.h>
@@ -91,6 +92,11 @@ typedef struct
 	wStream* data;
 	AUDIO_FORMAT* format;
 	UINT32 FramesPerPacket;
+	BOOL device_opened;
+	BOOL device_format_set;
+	AUDIO_FORMAT device_format;
+	CRITICAL_SECTION lock;
+	BOOL lock_initialized;
 
 	FREERDP_DSP_CONTEXT* dsp_context;
 	wLog* log;
@@ -102,6 +108,42 @@ typedef struct
 } AUDIN_PLUGIN;
 
 static BOOL audin_process_addin_args(AUDIN_PLUGIN* audin, const ADDIN_ARGV* args);
+
+static BOOL audin_format_same(const AUDIO_FORMAT* left, const AUDIO_FORMAT* right)
+{
+	if (!left || !right)
+		return FALSE;
+
+	if (left->wFormatTag != right->wFormatTag)
+		return FALSE;
+	if (left->nChannels != right->nChannels)
+		return FALSE;
+	if (left->nSamplesPerSec != right->nSamplesPerSec)
+		return FALSE;
+	if (left->nAvgBytesPerSec != right->nAvgBytesPerSec)
+		return FALSE;
+	if (left->nBlockAlign != right->nBlockAlign)
+		return FALSE;
+	if (left->wBitsPerSample != right->wBitsPerSample)
+		return FALSE;
+	if (left->cbSize != right->cbSize)
+		return FALSE;
+	if (left->cbSize == 0)
+		return TRUE;
+	if (!left->data || !right->data)
+		return left->data == right->data;
+	return memcmp(left->data, right->data, left->cbSize) == 0;
+}
+
+static BOOL audin_capture_format_same(const AUDIO_FORMAT* left, const AUDIO_FORMAT* right)
+{
+	if (!left || !right)
+		return FALSE;
+
+	return left->wFormatTag == right->wFormatTag && left->nChannels == right->nChannels &&
+	       left->nSamplesPerSec == right->nSamplesPerSec &&
+	       left->wBitsPerSample == right->wBitsPerSample && left->cbSize == right->cbSize;
+}
 
 static UINT audin_channel_write_and_free(AUDIN_CHANNEL_CALLBACK* callback, wStream* out,
                                          BOOL freeStream)
@@ -269,6 +311,13 @@ static UINT audin_process_formats(AUDIN_PLUGIN* audin, AUDIN_CHANNEL_CALLBACK* c
 		}
 	}
 
+	if (callback->formats_count == 0)
+	{
+		WLog_Print(audin->log, WLOG_WARN,
+		           "no compatible audio input format accepted; check microphone format, rate and "
+		           "channel filters against server formats");
+	}
+
 	if ((error = audin_send_incoming_data_pdu(callback)))
 	{
 		WLog_Print(audin->log, WLOG_ERROR, "audin_send_incoming_data_pdu failed!");
@@ -354,7 +403,7 @@ static UINT audin_receive_wave_data(const AUDIO_FORMAT* format, const BYTE* data
 {
 	WINPR_ASSERT(format);
 
-	UINT error = ERROR_INTERNAL_ERROR;
+	UINT error = CHANNEL_RC_OK;
 	AUDIN_CHANNEL_CALLBACK* callback = (AUDIN_CHANNEL_CALLBACK*)user_data;
 
 	if (!callback)
@@ -368,10 +417,14 @@ static UINT audin_receive_wave_data(const AUDIO_FORMAT* format, const BYTE* data
 	if (!audin->attached)
 		return CHANNEL_RC_OK;
 
+	EnterCriticalSection(&audin->lock);
 	Stream_ResetPosition(audin->data);
 
 	if (!Stream_EnsureRemainingCapacity(audin->data, 1))
-		return CHANNEL_RC_NO_MEMORY;
+	{
+		error = CHANNEL_RC_NO_MEMORY;
+		goto out;
+	}
 
 	Stream_Write_UINT8(audin->data, MSG_SNDIN_DATA);
 
@@ -379,19 +432,25 @@ static UINT audin_receive_wave_data(const AUDIO_FORMAT* format, const BYTE* data
 	if (compatible && audin->device->FormatSupported(audin->device, audin->format))
 	{
 		if (!Stream_EnsureRemainingCapacity(audin->data, size))
-			return CHANNEL_RC_NO_MEMORY;
+		{
+			error = CHANNEL_RC_NO_MEMORY;
+			goto out;
+		}
 
 		Stream_Write(audin->data, data, size);
 	}
 	else
 	{
 		if (!freerdp_dsp_encode(audin->dsp_context, format, data, size, audin->data))
-			return ERROR_INTERNAL_ERROR;
+		{
+			error = ERROR_INTERNAL_ERROR;
+			goto out;
+		}
 	}
 
 	/* Did not encode anything, skip this, the codec is not ready for output. */
 	if (Stream_GetPosition(audin->data) <= 1)
-		return CHANNEL_RC_OK;
+		goto out;
 
 	audio_format_print(audin->log, WLOG_TRACE, audin->format);
 	WLog_Print(audin->log, WLOG_TRACE, "[%" PRIuz "/%" PRIuz "]", size,
@@ -400,21 +459,25 @@ static UINT audin_receive_wave_data(const AUDIO_FORMAT* format, const BYTE* data
 	if ((error = audin_send_incoming_data_pdu(callback)))
 	{
 		WLog_Print(audin->log, WLOG_ERROR, "audin_send_incoming_data_pdu failed!");
-		return error;
+		goto out;
 	}
 
-	return audin_channel_write_and_free(callback, audin->data, FALSE);
+	error = audin_channel_write_and_free(callback, audin->data, FALSE);
+
+out:
+	LeaveCriticalSection(&audin->lock);
+	return error;
 }
 
-static BOOL audin_open_device(AUDIN_PLUGIN* audin, AUDIN_CHANNEL_CALLBACK* callback)
+static BOOL audin_select_device_format(AUDIN_PLUGIN* audin, const AUDIO_FORMAT* targetFormat,
+                                       AUDIO_FORMAT* deviceFormat)
 {
-	UINT error = ERROR_INTERNAL_ERROR;
 	AUDIO_FORMAT format = WINPR_C_ARRAY_INIT;
 
-	if (!audin || !audin->device)
+	if (!audin || !audin->device || !targetFormat || !deviceFormat)
 		return FALSE;
 
-	format = *audin->format;
+	format = *targetFormat;
 	const BOOL supported =
 	    IFCALLRESULT(FALSE, audin->device->FormatSupported, audin->device, &format);
 	WLog_Print(audin->log, WLOG_DEBUG, "microphone uses %s codec",
@@ -447,6 +510,21 @@ static BOOL audin_open_device(AUDIN_PLUGIN* audin, AUDIN_CHANNEL_CALLBACK* callb
 			return FALSE;
 	}
 
+	*deviceFormat = format;
+	return TRUE;
+}
+
+static BOOL audin_open_device(AUDIN_PLUGIN* audin, AUDIN_CHANNEL_CALLBACK* callback)
+{
+	UINT error = ERROR_INTERNAL_ERROR;
+	AUDIO_FORMAT format = WINPR_C_ARRAY_INIT;
+
+	if (!audin || !audin->device)
+		return FALSE;
+
+	if (!audin_select_device_format(audin, audin->format, &format))
+		return FALSE;
+
 	IFCALLRET(audin->device->SetFormat, error, audin->device, &format, audin->FramesPerPacket);
 
 	if (error != CHANNEL_RC_OK)
@@ -466,6 +544,9 @@ static BOOL audin_open_device(AUDIN_PLUGIN* audin, AUDIN_CHANNEL_CALLBACK* callb
 		return FALSE;
 	}
 
+	audin->device_opened = TRUE;
+	audin->device_format = format;
+	audin->device_format_set = TRUE;
 	return TRUE;
 }
 
@@ -496,6 +577,33 @@ static UINT audin_process_open(AUDIN_PLUGIN* audin, AUDIN_CHANNEL_CALLBACK* call
 		return ERROR_INVALID_DATA;
 	}
 
+	if (audin->device_opened && audin_format_same(audin->format, &callback->formats[initialFormat]))
+	{
+		WLog_Print(audin->log, WLOG_DEBUG,
+		           "ignoring duplicate audio input open for format index=%" PRIu32, initialFormat);
+		if ((error = audin_send_format_change_pdu(audin, callback, initialFormat)))
+		{
+			WLog_Print(audin->log, WLOG_ERROR, "audin_send_format_change_pdu failed!");
+			return error;
+		}
+		if ((error = audin_send_open_reply_pdu(audin, callback, 0)))
+			WLog_Print(audin->log, WLOG_ERROR, "audin_send_open_reply_pdu failed!");
+		return error;
+	}
+
+	if (audin->device_opened && audin->device)
+	{
+		WLog_Print(audin->log, WLOG_DEBUG, "closing existing audio input device before reopen");
+		IFCALLRET(audin->device->Close, error, audin->device);
+		audin->device_opened = FALSE;
+		audin->device_format_set = FALSE;
+		if (error != CHANNEL_RC_OK)
+		{
+			WLog_ERR(TAG, "Close failed with errorcode %" PRIu32 "", error);
+			return error;
+		}
+	}
+
 	audin->format = &callback->formats[initialFormat];
 
 	if (!audin_open_device(audin, callback))
@@ -523,6 +631,7 @@ static UINT audin_process_format_change(AUDIN_PLUGIN* audin, AUDIN_CHANNEL_CALLB
 {
 	UINT32 NewFormat = 0;
 	UINT error = CHANNEL_RC_OK;
+	AUDIO_FORMAT* format = nullptr;
 
 	if (!Stream_CheckAndLogRequiredLength(TAG, s, 4))
 		return ERROR_INVALID_DATA;
@@ -537,11 +646,48 @@ static UINT audin_process_format_change(AUDIN_PLUGIN* audin, AUDIN_CHANNEL_CALLB
 		return ERROR_INVALID_DATA;
 	}
 
-	audin->format = &callback->formats[NewFormat];
+	format = &callback->formats[NewFormat];
+	if (audin->format == format || audin_format_same(audin->format, format))
+	{
+		WLog_Print(audin->log, WLOG_DEBUG,
+		           "ignoring unchanged audio input format change index=%" PRIu32, NewFormat);
+		if ((error = audin_send_format_change_pdu(audin, callback, NewFormat)))
+			WLog_ERR(TAG, "audin_send_format_change_pdu failed!");
+		return error;
+	}
+
+	if (audin->device_opened && audin->device_format_set)
+	{
+		AUDIO_FORMAT deviceFormat = WINPR_C_ARRAY_INIT;
+		if (!audin_select_device_format(audin, format, &deviceFormat))
+			return ERROR_INTERNAL_ERROR;
+		if (audin_capture_format_same(&audin->device_format, &deviceFormat))
+		{
+			EnterCriticalSection(&audin->lock);
+			audin->format = format;
+			if (!freerdp_dsp_context_reset(audin->dsp_context, audin->format,
+			                               audin->FramesPerPacket))
+			{
+				LeaveCriticalSection(&audin->lock);
+				return ERROR_INTERNAL_ERROR;
+			}
+			LeaveCriticalSection(&audin->lock);
+			WLog_Print(audin->log, WLOG_DEBUG,
+			           "retaining audio input capturer for format change index=%" PRIu32,
+			           NewFormat);
+			if ((error = audin_send_format_change_pdu(audin, callback, NewFormat)))
+				WLog_ERR(TAG, "audin_send_format_change_pdu failed!");
+			return error;
+		}
+	}
+
+	audin->format = format;
 
 	if (audin->device)
 	{
 		IFCALLRET(audin->device->Close, error, audin->device);
+		audin->device_opened = FALSE;
+		audin->device_format_set = FALSE;
 
 		if (error != CHANNEL_RC_OK)
 		{
@@ -630,6 +776,8 @@ static UINT audin_on_close(IWTSVirtualChannelCallback* pChannelCallback)
 	if (audin->device)
 	{
 		IFCALLRET(audin->device->Close, error, audin->device);
+		audin->device_opened = FALSE;
+		audin->device_format_set = FALSE;
 
 		if (error != CHANNEL_RC_OK)
 			WLog_Print(audin->log, WLOG_ERROR, "Close failed with errorcode %" PRIu32 "", error);
@@ -756,6 +904,8 @@ static UINT audin_plugin_terminated(IWTSPlugin* pPlugin)
 
 	freerdp_dsp_context_free(audin->dsp_context);
 	Stream_Free(audin->data, TRUE);
+	if (audin->lock_initialized)
+		DeleteCriticalSection(&audin->lock);
 	free(audin->subsystem);
 	free(audin->device_name);
 	free(audin->listener_callback);
@@ -1004,6 +1154,9 @@ FREERDP_ENTRY_POINT(UINT VCAPITYPE audin_DVCPluginEntry(IDRDYNVC_ENTRY_POINTS* p
 #if defined(WITH_OPENSLES)
 		{ "opensles", "default" },
 #endif
+#if defined(WITH_OHAUDIO)
+		{ "ohos", "default" },
+#endif
 #if defined(WITH_WINMM)
 		{ "winmm", "default" },
 #endif
@@ -1037,6 +1190,10 @@ FREERDP_ENTRY_POINT(UINT VCAPITYPE audin_DVCPluginEntry(IDRDYNVC_ENTRY_POINTS* p
 	audin->log = WLog_Get(TAG);
 	audin->data = Stream_New(nullptr, 4096);
 	audin->fixed_format = audio_format_new();
+	audin->lock_initialized = InitializeCriticalSectionAndSpinCount(&audin->lock, 4000);
+
+	if (!audin->lock_initialized)
+		goto out;
 
 	if (!audin->fixed_format)
 		goto out;

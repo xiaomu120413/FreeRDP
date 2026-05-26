@@ -181,6 +181,23 @@ if(ANDROID AND WITH_MEDIACODEC)
   list(APPEND CODEC_LIBS ${MEDIACODEC})
 endif()
 
+if(WITH_OHOS_AVCODEC)
+  include(WarnExperimental)
+  warn_experimental("HarmonyOS AVCodec H264 decoder probe" "-DWITH_OHOS_AVCODEC=OFF")
+  list(APPEND CODEC_SRCS
+       h264_ohos_callbacks.c
+       h264_ohos_decoder.c
+       h264_ohos_diagnostics.c
+       h264_ohos_surface_state.c)
+
+  find_library(OHOS_AVCODEC_VDEC_LIBRARY native_media_vdec REQUIRED)
+  find_library(OHOS_AVCODEC_CODECBASE_LIBRARY native_media_codecbase REQUIRED)
+  find_library(OHOS_AVCODEC_CORE_LIBRARY native_media_core REQUIRED)
+  list(APPEND CODEC_LIBS ${OHOS_AVCODEC_VDEC_LIBRARY})
+  list(APPEND CODEC_LIBS ${OHOS_AVCODEC_CODECBASE_LIBRARY})
+  list(APPEND CODEC_LIBS ${OHOS_AVCODEC_CORE_LIBRARY})
+endif()
+
 add_library(freerdp-codecs OBJECT ${CODEC_SRCS})
 freerdp_library_add(${CODEC_LIBS})
 freerdp_object_library_add(freerdp-codecs)

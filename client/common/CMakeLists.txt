@@ -29,8 +29,76 @@ set(SRCS
     file.c
     client_cliprdr_file.c
     geometry.c
-    smartcard_cli.c
 )
+
+if(WITH_SMARTCARD)
+  list(APPEND SRCS smartcard_cli.c)
+endif()
+
+if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
+  find_library(OHOS_EGL_LIBRARY EGL REQUIRED)
+  find_library(OHOS_GLESV3_LIBRARY GLESv3 REQUIRED)
+  set(FREERDP_OHOS_PUBLIC_HEADERS
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_audio.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_avc420_route.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_certificate.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_display.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_graphics.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_ime.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_input_queue.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_keyboard.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_pointer.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_config.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_options.h)
+  list(APPEND SRCS
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_certificate.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_avc420_route.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_display.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_graphics.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_ime.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_input_queue.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_keyboard.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_pointer.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx_avc420.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx_avc444_policy.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx_bridge.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx_caps.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx_diagnostics.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx_surface.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_config.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_display.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_input.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_options.c)
+  list(APPEND PRIV_LIBS ${OHOS_EGL_LIBRARY} ${OHOS_GLESV3_LIBRARY})
+endif()
+
+if(WITH_OHOS_PASTEBOARD)
+  find_library(OHOS_PASTEBOARD_LIBRARY pasteboard REQUIRED)
+  find_library(OHOS_UDMF_LIBRARY udmf REQUIRED)
+  find_library(OHOS_FILE_URI_LIBRARY ohfileuri REQUIRED)
+  find_library(OHOS_IMAGE_NDK_LIBRARY image_ndk.z REQUIRED)
+  find_library(OHOS_IMAGE_SOURCE_LIBRARY image_source REQUIRED)
+  find_library(OHOS_PIXELMAP_NDK_LIBRARY pixelmap_ndk.z REQUIRED)
+  find_library(OHOS_PIXELMAP_LIBRARY pixelmap REQUIRED)
+  list(APPEND SRCS
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_cache.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_cliprdr.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_core.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_file.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_formats.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_image.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_pasteboard.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_pasteboard_write.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_text.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_worker.c)
+  list(APPEND PRIV_LIBS ${OHOS_PASTEBOARD_LIBRARY} ${OHOS_UDMF_LIBRARY}
+       ${OHOS_FILE_URI_LIBRARY} ${OHOS_IMAGE_NDK_LIBRARY} ${OHOS_IMAGE_SOURCE_LIBRARY}
+       ${OHOS_PIXELMAP_NDK_LIBRARY} ${OHOS_PIXELMAP_LIBRARY})
+endif()
 
 foreach(FREERDP_CHANNELS_CLIENT_SRC ${FREERDP_CHANNELS_CLIENT_SRCS})
   get_filename_component(NINC ${FREERDP_CHANNELS_CLIENT_SRC} PATH)
@@ -94,6 +162,12 @@ target_include_directories(${MODULE_NAME} INTERFACE $<INSTALL_INTERFACE:include/
 target_link_libraries(${MODULE_NAME} PRIVATE ${FREERDP_CHANNELS_CLIENT_LIBS})
 target_link_libraries(${MODULE_NAME} PRIVATE ${PRIV_LIBS})
 target_link_libraries(${MODULE_NAME} PUBLIC ${PUB_LIBS})
+
+if(FREERDP_OHOS_PUBLIC_HEADERS)
+  set_property(TARGET ${MODULE_NAME} APPEND PROPERTY SOURCES ${FREERDP_OHOS_PUBLIC_HEADERS})
+  install(FILES ${FREERDP_OHOS_PUBLIC_HEADERS}
+          DESTINATION ${FREERDP_INCLUDE_DIR}/freerdp/client/ohos)
+endif()
 
 installwithrpath(
   TARGETS

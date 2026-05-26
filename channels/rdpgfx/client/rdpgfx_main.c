@@ -38,6 +38,7 @@
 
 #include <freerdp/addin.h>
 #include <freerdp/channels/log.h>
+#include <freerdp/freerdp.h>
 
 #include "rdpgfx_common.h"
 #include "rdpgfx_codec.h"
@@ -424,6 +425,33 @@ static UINT rdpgfx_send_supported_caps(GENERIC_CHANNEL_CALLBACK* callback)
 	}
 #endif
 
+	WLog_Print(gfx->base.log, WLOG_WARN,
+	           "SendCapsAdvertisePdu: count=%" PRIu32
+	           " settings:gfx-h264=%s avc444=%s avc444v2=%s thin=%s small-cache=%s filter=0x%08" PRIX32,
+	           pdu.capsSetCount,
+	           freerdp_settings_get_bool(gfx->rdpcontext->settings, FreeRDP_GfxH264) ? "yes" : "no",
+	           freerdp_settings_get_bool(gfx->rdpcontext->settings, FreeRDP_GfxAVC444) ? "yes" : "no",
+	           freerdp_settings_get_bool(gfx->rdpcontext->settings, FreeRDP_GfxAVC444v2) ? "yes" : "no",
+	           freerdp_settings_get_bool(gfx->rdpcontext->settings, FreeRDP_GfxThinClient) ? "yes" : "no",
+	           freerdp_settings_get_bool(gfx->rdpcontext->settings, FreeRDP_GfxSmallCache) ? "yes" : "no",
+	           freerdp_settings_get_uint32(gfx->rdpcontext->settings, FreeRDP_GfxCapsFilter));
+	for (UINT32 x = 0; x < pdu.capsSetCount; x++)
+	{
+		const RDPGFX_CAPSET* capsSet = &pdu.capsSets[x];
+		WLog_Print(gfx->base.log, WLOG_WARN,
+		           "SendCapsAdvertisePdu[%u]: version=%s [0x%08" PRIX32 "] length=%" PRIu32
+		           " flags=0x%08" PRIX32 " avc420=%s avc-disabled=%s avc444-cap=%s",
+		           x, rdpgfx_caps_version_str(capsSet->version), capsSet->version, capsSet->length,
+		           capsSet->flags,
+		           ((capsSet->flags & RDPGFX_CAPS_FLAG_AVC420_ENABLED) != 0) ? "yes" : "no",
+		           ((capsSet->flags & RDPGFX_CAPS_FLAG_AVC_DISABLED) != 0) ? "yes" : "no",
+		           ((capsSet->version == RDPGFX_CAPVERSION_101) ||
+		            ((capsSet->version >= RDPGFX_CAPVERSION_10) &&
+		             ((capsSet->flags & RDPGFX_CAPS_FLAG_AVC_DISABLED) == 0)))
+		               ? "yes"
+		               : "no");
+	}
+
 	return IFCALLRESULT(ERROR_BAD_CONFIGURATION, context->CapsAdvertise, context, &pdu);
 }
 
@@ -451,9 +479,30 @@ static UINT rdpgfx_recv_caps_confirm_pdu(GENERIC_CHANNEL_CALLBACK* callback, wSt
 	Stream_Read_UINT32(s, capsSet.flags);   /* capsData (4 bytes) */
 	gfx->TotalDecodedFrames = 0;
 	gfx->ConnectionCaps = capsSet;
-	WLog_Print(gfx->base.log, WLOG_DEBUG,
-	           "RecvCapsConfirmPdu: version: %s [0x%08" PRIX32 "] flags: 0x%08" PRIX32 "",
-	           rdpgfx_caps_version_str(capsSet.version), capsSet.version, capsSet.flags);
+	const BOOL avc420 = (capsSet.version == RDPGFX_CAPVERSION_81) &&
+	                    ((capsSet.flags & RDPGFX_CAPS_FLAG_AVC420_ENABLED) != 0);
+	const BOOL avc444 = (capsSet.version == RDPGFX_CAPVERSION_101) ||
+	                    ((capsSet.version >= RDPGFX_CAPVERSION_10) &&
+	                     ((capsSet.flags & RDPGFX_CAPS_FLAG_AVC_DISABLED) == 0));
+	WLog_Print(gfx->base.log, WLOG_WARN,
+	           "RecvCapsConfirmPdu: version: %s [0x%08" PRIX32 "] flags: 0x%08" PRIX32
+	           " avc420=%s avc444=%s avcThinClient=%s",
+	           rdpgfx_caps_version_str(capsSet.version), capsSet.version, capsSet.flags,
+	           avc420 ? "yes" : "no", avc444 ? "yes" : "no",
+	           (capsSet.flags & RDPGFX_CAPS_FLAG_AVC_THINCLIENT) ? "yes" : "no");
+
+	const BOOL requireAvc420 =
+	    freerdp_settings_get_bool(gfx->rdpcontext->settings, FreeRDP_GfxH264) &&
+	    !freerdp_settings_get_bool(gfx->rdpcontext->settings, FreeRDP_GfxAVC444) &&
+	    !freerdp_settings_get_bool(gfx->rdpcontext->settings, FreeRDP_GfxAVC444v2);
+	if (requireAvc420 && !avc420)
+	{
+		WLog_Print(gfx->base.log, WLOG_ERROR,
+		           "Server did not confirm requested RDPGFX AVC420 surface mode");
+		if (gfx->rdpcontext)
+			freerdp_set_last_error(gfx->rdpcontext, ERROR_NOT_SUPPORTED);
+		return ERROR_NOT_SUPPORTED;
+	}
 
 	if (!context)
 		return ERROR_BAD_CONFIGURATION;

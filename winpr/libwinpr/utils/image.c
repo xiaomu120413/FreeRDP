@@ -610,9 +610,7 @@ int winpr_image_read_buffer(wImage* image, const BYTE* buffer, size_t size)
 			status = 1;
 		}
 	}
-	else if ((sig[0] == 0xFF) && (sig[1] == 0xD8) && (sig[2] == 0xFF) && (sig[3] == 0xE0) &&
-	         (sig[6] == 0x4A) && (sig[7] == 0x46) && (sig[8] == 0x49) && (sig[9] == 0x46) &&
-	         (sig[10] == 0x00))
+	else if ((sig[0] == 0xFF) && (sig[1] == 0xD8) && (sig[2] == 0xFF))
 	{
 		image->type = WINPR_IMAGE_JPEG;
 		const SSIZE_T rc = winpr_convert_from_jpeg(buffer, size, &image->width, &image->height,

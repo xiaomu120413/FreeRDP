@@ -159,6 +159,9 @@ INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize
 	if (status < 0)
 		return status;
 
+	if (h264->surfaceRendered)
+		return 1;
+
 	pYUVData[0] = h264->pYUVData[0];
 	pYUVData[1] = h264->pYUVData[1];
 	pYUVData[2] = h264->pYUVData[2];
@@ -688,6 +691,12 @@ static BOOL CALLBACK h264_register_subsystems(WINPR_ATTR_UNUSED PINIT_ONCE once,
 		i++;
 	}
 #endif
+#ifdef WITH_OHOS_AVCODEC
+	{
+		subSystems[i] = &g_Subsystem_OHOS_AVCodec;
+		i++;
+	}
+#endif
 #if defined(_WIN32) && defined(WITH_MEDIA_FOUNDATION)
 	{
 		subSystems[i] = &g_Subsystem_MF;
@@ -725,11 +734,28 @@ static BOOL h264_context_init(H264_CONTEXT* h264)
 		if (!subsystem || !subsystem->Init)
 			break;
 
+#ifdef WITH_OHOS_AVCODEC
+		if (subsystem == &g_Subsystem_OHOS_AVCodec)
+		{
+			if (h264->ohosAvcodecRuntimeDisabled || !h264->ohosSurfaceModeAllowed)
+				continue;
+		}
+		else if (h264->ohosSurfaceModeAllowed)
+		{
+			continue;
+		}
+#endif
+
 		if (subsystem->Init(h264))
 		{
 			h264->subsystem = subsystem;
 			return TRUE;
 		}
+
+#ifdef WITH_OHOS_AVCODEC
+		if (h264->ohosSurfaceModeAllowed && (subsystem == &g_Subsystem_OHOS_AVCodec))
+			return FALSE;
+#endif
 	}
 
 	return FALSE;
@@ -749,6 +775,39 @@ BOOL h264_context_reset(H264_CONTEXT* h264, UINT32 width, UINT32 height)
 		return FALSE;
 
 	return yuv_context_reset(h264->yuv, width, height);
+}
+
+BOOL h264_context_set_ohos_surface_mode_allowed(H264_CONTEXT* h264, BOOL allowed)
+{
+	BOOL changed = FALSE;
+
+	if (!h264)
+		return FALSE;
+	if (allowed && h264->ohosAvcodecRuntimeDisabled)
+		return FALSE;
+
+	changed = h264->ohosSurfaceModeAllowed != allowed;
+	h264->ohosSurfaceModeAllowed = allowed;
+	return changed;
+}
+
+BOOL h264_context_fallback_ohos_avcodec_to_software(H264_CONTEXT* h264)
+{
+	if (!h264 || h264->Compressor)
+		return FALSE;
+
+	h264->ohosAvcodecRuntimeDisabled = TRUE;
+	h264->ohosSurfaceModeAllowed = FALSE;
+	h264->surfaceRendered = FALSE;
+
+	if (h264->subsystem && h264->subsystem->Uninit)
+		h264->subsystem->Uninit(h264);
+	h264->subsystem = nullptr;
+
+	if (!h264_context_init(h264))
+		return FALSE;
+
+	return yuv_context_reset(h264->yuv, h264->width, h264->height);
 }
 
 H264_CONTEXT* h264_context_new(BOOL Compressor)

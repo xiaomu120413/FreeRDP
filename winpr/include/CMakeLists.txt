@@ -20,6 +20,14 @@ cleaning_configure_file(config/build-config.h.in ${CMAKE_CURRENT_BINARY_DIR}/win
 cleaning_configure_file(config/buildflags.h.in ${CMAKE_CURRENT_BINARY_DIR}/winpr/buildflags.h)
 cleaning_configure_file(config/config.h.in ${CMAKE_CURRENT_BINARY_DIR}/winpr/config.h)
 
+if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/winpr/buildflags.h")
+  set(CURRENT_BUILD_CONFIG "${CMAKE_BUILD_TYPE}")
+  cflagstovar(CURRENT_C_FLAGS ${CURRENT_BUILD_CONFIG})
+  configure_file(config/buildflags.h.in ${CMAKE_CURRENT_BINARY_DIR}/winpr/buildflags.h)
+  unset(CURRENT_BUILD_CONFIG)
+  unset(CURRENT_C_FLAGS)
+endif()
+
 file(GLOB_RECURSE WINPR_PUBLIC_COMMON_HEADERS LIST_DIRECTORIES false "winpr/*.h")
 
 set(WINPR_PUBLIC_TOOLS_HEADERS ${WINPR_PUBLIC_COMMON_HEADERS})

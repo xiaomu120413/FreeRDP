@@ -160,6 +160,10 @@ if(ANDROID)
   winpr_library_add_private(log)
 endif()
 
+if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
+  winpr_library_add_private(hilog_ndk.z)
+endif()
+
 # Level "1" API as defined for MinCore.lib
 set(WINPR_CORE
     synch
@@ -202,10 +206,13 @@ set(WINPR_LEVEL2
     rpc
     wtsapi
     dsparse
-    smartcard
     nt
     clipboard
 )
+
+if(WITH_SMARTCARD)
+  list(APPEND WINPR_LEVEL2 smartcard)
+endif()
 
 foreach(DIR ${WINPR_LEVEL2})
   add_subdirectory(${DIR})

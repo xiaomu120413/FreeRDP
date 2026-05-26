@@ -37,6 +37,12 @@
 #include "../log.h"
 #endif
 
+#if defined(__OHOS__)
+#include <hilog/log.h>
+#define WLOG_OHOS_LOG_DOMAIN 0xF3D0
+#define WLOG_OHOS_LOG_TAG "FreeRDP"
+#endif
+
 #include "wlog.h"
 #include "../log.h"
 
@@ -124,6 +130,10 @@ static BOOL CALLBACK WLog_InitializeRoot(PINIT_ONCE InitOnce, PVOID Parameter, P
 		return FALSE;
 
 	g_RootLog->IsRoot = TRUE;
+#if defined(__OHOS__)
+	(void)OH_LOG_Print(LOG_APP, LOG_INFO, WLOG_OHOS_LOG_DOMAIN, WLOG_OHOS_LOG_TAG,
+	                   "FREERDP_HILOG_BRIDGE_READY WinPR WLog initialized");
+#endif
 	logAppenderType = WLOG_APPENDER_CONSOLE;
 	nSize = GetEnvironmentVariableA(appender, nullptr, 0);
 
@@ -184,7 +194,7 @@ static BOOL log_recursion(LPCSTR file, LPCSTR fkt, size_t line)
 	char** msg = nullptr;
 	size_t used = 0;
 	void* bt = winpr_backtrace(20);
-#if defined(ANDROID)
+#if defined(ANDROID) || defined(__OHOS__)
 	LPCSTR tag = WINPR_TAG("utils.wlog");
 #endif
 
@@ -206,6 +216,22 @@ static BOOL log_recursion(LPCSTR file, LPCSTR fkt, size_t line)
 
 	for (size_t i = 0; i < used; i++)
 		if (__android_log_print(ANDROID_LOG_FATAL, tag, "%zu: %s", i, msg[i]) < 0)
+			goto out;
+
+#elif defined(__OHOS__)
+
+	if (OH_LOG_Print(LOG_APP, LOG_FATAL, WLOG_OHOS_LOG_DOMAIN, WLOG_OHOS_LOG_TAG,
+	                 "[%{public}s] Recursion detected!!!", tag) < 0)
+		goto out;
+
+	if (OH_LOG_Print(LOG_APP, LOG_FATAL, WLOG_OHOS_LOG_DOMAIN, WLOG_OHOS_LOG_TAG,
+	                 "[%{public}s] Check %{public}s [%{public}s:%{public}zu]", tag, fkt,
+	                 file, line) < 0)
+		goto out;
+
+	for (size_t i = 0; i < used; i++)
+		if (OH_LOG_Print(LOG_APP, LOG_FATAL, WLOG_OHOS_LOG_DOMAIN, WLOG_OHOS_LOG_TAG,
+		                 "[%{public}s] %{public}zu: %{public}s", tag, i, msg[i]) < 0)
 			goto out;
 
 #else

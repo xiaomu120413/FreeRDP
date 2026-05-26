@@ -71,7 +71,6 @@ set(${MODULE_PREFIX}_SRCS
     mcs.h
     nla.c
     nla.h
-    smartcardlogon.c
     nego.c
     nego.h
     info.c
@@ -152,6 +151,10 @@ set(${MODULE_PREFIX}_SRCS
     timer.c
     timer.h
 )
+
+if(WITH_SMARTCARD)
+  list(APPEND ${MODULE_PREFIX}_SRCS smartcardlogon.c)
+endif()
 
 set(${MODULE_PREFIX}_SRCS ${${MODULE_PREFIX}_SRCS} ${${MODULE_PREFIX}_GATEWAY_SRCS})
 
