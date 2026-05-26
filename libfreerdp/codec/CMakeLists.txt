@@ -184,7 +184,11 @@ endif()
 if(WITH_OHOS_AVCODEC)
   include(WarnExperimental)
   warn_experimental("HarmonyOS AVCodec H264 decoder probe" "-DWITH_OHOS_AVCODEC=OFF")
-  list(APPEND CODEC_SRCS h264_ohos_avcodec.c)
+  list(APPEND CODEC_SRCS
+       h264_ohos_callbacks.c
+       h264_ohos_decoder.c
+       h264_ohos_diagnostics.c
+       h264_ohos_surface_state.c)
 
   find_library(OHOS_AVCODEC_VDEC_LIBRARY native_media_vdec REQUIRED)
   find_library(OHOS_AVCODEC_CODECBASE_LIBRARY native_media_codecbase REQUIRED)
