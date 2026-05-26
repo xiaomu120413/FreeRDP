@@ -69,7 +69,17 @@ if(WITH_OHOS_PASTEBOARD)
   find_library(OHOS_IMAGE_SOURCE_LIBRARY image_source REQUIRED)
   find_library(OHOS_PIXELMAP_NDK_LIBRARY pixelmap_ndk.z REQUIRED)
   find_library(OHOS_PIXELMAP_LIBRARY pixelmap REQUIRED)
-  list(APPEND SRCS ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard.c)
+  list(APPEND SRCS
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_cache.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_cliprdr.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_core.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_file.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_formats.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_image.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_pasteboard.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_pasteboard_write.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_text.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard_worker.c)
   list(APPEND PRIV_LIBS ${OHOS_PASTEBOARD_LIBRARY} ${OHOS_UDMF_LIBRARY}
        ${OHOS_FILE_URI_LIBRARY} ${OHOS_IMAGE_NDK_LIBRARY} ${OHOS_IMAGE_SOURCE_LIBRARY}
        ${OHOS_PIXELMAP_NDK_LIBRARY} ${OHOS_PIXELMAP_LIBRARY})
