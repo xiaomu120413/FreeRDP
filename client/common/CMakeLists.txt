@@ -47,7 +47,12 @@ if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_input_queue.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_keyboard.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_pointer.c
-       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx_avc420.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx_avc444_policy.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx_bridge.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx_caps.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx_diagnostics.c
+       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx_surface.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_config.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_display.c
