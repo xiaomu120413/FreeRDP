@@ -10,6 +10,27 @@ FreeRDP OHOS client/backend layer.
 
 Current contents:
 
+- Public SDK headers:
+  - `ohos_session.h`, `ohos_session_options.h`, `ohos_session_config.h`: opaque
+    session lifecycle, option normalization, connection settings and standard
+    channel defaults.
+  - `ohos_audio.h`: OHOS rdpsnd/audin diagnostics and the microphone permission
+    callback registration point.
+  - `ohos_clipboard.h`: Pasteboard-backed `cliprdr` registration and read
+    permission callback.
+  - `ohos_display.h`: `disp` monitor layout and resize helpers.
+  - `ohos_graphics.h`: graphics-mode parsing, fallback policy and H.264 desktop
+    alignment helpers.
+  - `ohos_ime.h`, `ohos_keyboard.h`, `ohos_pointer.h`, `ohos_input_queue.h`:
+    input translation and queued dispatch helpers.
+  - `ohos_rdpgfx.h`, `ohos_avc420_route.h`: RDPGFX bridge, AVC444 surface
+    callbacks and AVC420 direct surface route helpers.
+  - `ohos_certificate.h`: certificate policy parsing and callback registration.
+- Internal headers:
+  - `ohos_session_private.h` and `ohos_rdpgfx_internal.h` are implementation
+    details and are not installed as SDK headers.
+  - Any future `*_internal.h` header in this directory must stay private unless
+    it is deliberately promoted in the SDK quickstart.
 - `ohos_keyboard.*`: maps HarmonyOS key codes to Windows virtual keys and marks
   keys that require extended scancodes. It also owns pressed-key state, modifier
   synthesis, long-press repeat generation and release-all cleanup. The HAP
@@ -52,7 +73,15 @@ Current contents:
   channel requests, connect/disconnect and event loop. The HAP supplies UI,
   surface, certificate, clipboard and input-pump callbacks.
 
-Planned migration:
+Install/API boundary:
 
-- A stable public include/install story for the OHOS helper headers if this
-  branch becomes a reusable SDK rather than a repo-local port.
+- OHOS public headers are installed under
+  `include/freerdp3/freerdp/client/ohos/` for FreeRDP 3 builds. Third-party
+  callers include them as `<freerdp/client/ohos/ohos_session.h>` after adding
+  the FreeRDP include root.
+- Public headers must not include ArkUI, N-API, Demo HAP classes or other HAP
+  private C++ types. Platform-specific objects such as NativeWindow stay behind
+  callback `void*` handles owned by the application.
+- Keep `READ_PASTEBOARD` and `MICROPHONE` permission prompts in the app layer.
+  The FreeRDP OHOS layer only calls permission callbacks at the protocol point
+  that actually needs the capability.

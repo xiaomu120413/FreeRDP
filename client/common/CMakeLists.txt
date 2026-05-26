@@ -38,6 +38,21 @@ endif()
 if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
   find_library(OHOS_EGL_LIBRARY EGL REQUIRED)
   find_library(OHOS_GLESV3_LIBRARY GLESv3 REQUIRED)
+  set(FREERDP_OHOS_PUBLIC_HEADERS
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_audio.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_avc420_route.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_certificate.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_display.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_graphics.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_ime.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_input_queue.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_keyboard.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_pointer.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_config.h
+      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_options.h)
   list(APPEND SRCS
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_certificate.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_avc420_route.c
@@ -147,6 +162,12 @@ target_include_directories(${MODULE_NAME} INTERFACE $<INSTALL_INTERFACE:include/
 target_link_libraries(${MODULE_NAME} PRIVATE ${FREERDP_CHANNELS_CLIENT_LIBS})
 target_link_libraries(${MODULE_NAME} PRIVATE ${PRIV_LIBS})
 target_link_libraries(${MODULE_NAME} PUBLIC ${PUB_LIBS})
+
+if(FREERDP_OHOS_PUBLIC_HEADERS)
+  set_property(TARGET ${MODULE_NAME} APPEND PROPERTY SOURCES ${FREERDP_OHOS_PUBLIC_HEADERS})
+  install(FILES ${FREERDP_OHOS_PUBLIC_HEADERS}
+          DESTINATION ${FREERDP_INCLUDE_DIR}/freerdp/client/ohos)
+endif()
 
 installwithrpath(
   TARGETS
