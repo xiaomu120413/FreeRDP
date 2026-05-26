@@ -62,7 +62,8 @@ Current contents:
   supplies only NativeWindow/AVCodec surface callbacks.
 - `ohos_session_config.*`: owns enhanced RDP settings and standard channel
   request parameters for cliprdr, display-control, rdpsnd/OHAudio playback and
-  audin/OHAudio capture.
+  audin/OHAudio capture. It also registers the fixed OHOS Download directory
+  drive as `\\tsclient\Downloads` when the directory is available.
 - `ohos_session_options.*`: owns raw HAP option normalization, including
   username/domain splitting, port and desktop-size parsing, graphics-mode and
   certificate-policy parsing, H.264 desktop alignment and FreeRDP storage paths.
@@ -85,3 +86,6 @@ Install/API boundary:
 - Keep `READ_PASTEBOARD` and `MICROPHONE` permission prompts in the app layer.
   The FreeRDP OHOS layer only calls permission callbacks at the protocol point
   that actually needs the capability.
+- Keep Download directory authorization in the app layer. The FreeRDP OHOS layer
+  derives the fixed public Download subdirectory itself and must not receive
+  arbitrary ETS paths for drive redirection.

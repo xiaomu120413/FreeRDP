@@ -21,6 +21,7 @@ typedef struct
 	BOOL clipboard;
 	BOOL displayControl;
 	BOOL location;
+	BOOL drive;
 	BOOL printer;
 	BOOL audioPlayback;
 	BOOL audioCapture;

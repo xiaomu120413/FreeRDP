@@ -5,9 +5,15 @@
 
 #include "ohos_session_config.h"
 
+#include <errno.h>
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+
+#include <filemanagement/environment/oh_environment.h>
 
 #include <freerdp/channels/cliprdr.h>
 #include <freerdp/channels/disp.h>
@@ -18,6 +24,10 @@
 #include <freerdp/constants.h>
 #include <freerdp/settings_keys.h>
 #include <winpr/crt.h>
+
+#define OHOS_RDPDR_DOWNLOAD_DRIVE_NAME "Downloads"
+#define OHOS_RDPDR_DOWNLOAD_SUBDIR "com.muhub.desktop"
+#define OHOS_RDPDR_PATH_SIZE 1024U
 
 static void ohos_session_format_message(char* message, size_t size, const char* format, ...)
 {
@@ -80,12 +90,110 @@ static BOOL ohos_session_add_dynamic_channel(rdpSettings* settings, size_t count
 	return FALSE;
 }
 
+static BOOL ohos_session_join_path(const char* parent, const char* child, char* output,
+                                   size_t outputSize)
+{
+	if (!parent || parent[0] == '\0' || !child || child[0] == '\0' || !output ||
+	    outputSize == 0)
+		return FALSE;
+
+	const size_t parentLength = strlen(parent);
+	const BOOL needsSeparator = parent[parentLength - 1] != '/';
+	const int rc = snprintf(output, outputSize, "%s%s%s", parent, needsSeparator ? "/" : "",
+	                        child);
+	return rc > 0 && (size_t)rc < outputSize;
+}
+
+static BOOL ohos_session_path_is_directory(const char* path)
+{
+	struct stat st = { 0 };
+	return path && stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+static BOOL ohos_session_ensure_directory(const char* path)
+{
+	if (ohos_session_path_is_directory(path))
+		return TRUE;
+
+	if (mkdir(path, 0770) == 0)
+		return TRUE;
+
+	if (errno == EEXIST)
+		return ohos_session_path_is_directory(path);
+
+	return FALSE;
+}
+
+static BOOL ohos_session_prepare_download_drive_path(char* path, size_t pathSize, char* message,
+                                                     size_t messageSize)
+{
+	char* downloadPath = NULL;
+	const FileManagement_ErrCode rc = OH_Environment_GetUserDownloadDir(&downloadPath);
+	if (rc != 0 || !downloadPath || downloadPath[0] == '\0')
+	{
+		ohos_session_format_message(message, messageSize,
+		                            "download drive skipped: get Download path failed [%" PRId32
+		                            "]",
+		                            (INT32)rc);
+		free(downloadPath);
+		return FALSE;
+	}
+
+	const BOOL joined =
+	    ohos_session_join_path(downloadPath, OHOS_RDPDR_DOWNLOAD_SUBDIR, path, pathSize);
+	free(downloadPath);
+
+	if (!joined)
+	{
+		ohos_session_format_message(message, messageSize,
+		                            "download drive skipped: Download path is too long");
+		return FALSE;
+	}
+
+	if (!ohos_session_ensure_directory(path))
+	{
+		ohos_session_format_message(message, messageSize,
+		                            "download drive skipped: create Download app directory failed");
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+static BOOL ohos_session_add_download_drive(rdpSettings* settings, char* message,
+                                            size_t messageSize)
+{
+	char path[OHOS_RDPDR_PATH_SIZE] = { 0 };
+	char detail[160] = { 0 };
+	if (!ohos_session_prepare_download_drive_path(path, sizeof(path), detail, sizeof(detail)))
+	{
+		if (detail[0] != '\0')
+			ohos_session_format_message(message, messageSize, "%s", detail);
+		return FALSE;
+	}
+
+	const char* params[] = { "drive", OHOS_RDPDR_DOWNLOAD_DRIVE_NAME, path };
+	if (!freerdp_client_add_device_channel(settings, ARRAYSIZE(params), params))
+	{
+		ohos_session_format_message(message, messageSize,
+		                            "download drive skipped: add drive device failed");
+		return FALSE;
+	}
+
+	if (!ohos_session_set_bool(settings, FreeRDP_RedirectDrives, TRUE, "RedirectDrives",
+	                           message, messageSize))
+		return FALSE;
+
+	return TRUE;
+}
+
 FREERDP_OHOS_SESSION_CONFIG freerdp_ohos_session_config_default(void)
 {
 	FREERDP_OHOS_SESSION_CONFIG config = { 0 };
 	config.clipboard = TRUE;
 	config.displayControl = TRUE;
 	config.location = TRUE;
+	config.drive = TRUE;
 	config.printer = TRUE;
 	config.audioPlayback = TRUE;
 	config.audioCapture = TRUE;
@@ -281,6 +389,9 @@ BOOL freerdp_ohos_session_add_standard_channels(rdpSettings* settings,
                                                 const FREERDP_OHOS_SESSION_CONFIG* config,
                                                 char* message, size_t messageSize)
 {
+	BOOL driveAdded = FALSE;
+	char driveDetail[160] = { 0 };
+
 	if (!settings || !config)
 	{
 		ohos_session_format_message(message, messageSize, "OHOS session channel input invalid");
@@ -318,6 +429,9 @@ BOOL freerdp_ohos_session_add_standard_channels(rdpSettings* settings,
 		                                      message, messageSize))
 			return FALSE;
 	}
+
+	if (config->drive)
+		driveAdded = ohos_session_add_download_drive(settings, driveDetail, sizeof(driveDetail));
 
 	if (config->printer)
 	{
@@ -372,11 +486,13 @@ BOOL freerdp_ohos_session_add_standard_channels(rdpSettings* settings,
 
 	ohos_session_format_message(
 	    message, messageSize,
-	    "OHOS FreeRDP channels added: cliprdr=%d disp=%d location=%d rdpgfx=%d "
-	    "printer=%d rdpsnd=%d audin=%d audinCapture=%s",
+	    "OHOS FreeRDP channels added: cliprdr=%d disp=%d location=%d rdpgfx=%d drive=%d "
+	    "printer=%d rdpsnd=%d audin=%d audinCapture=%s%s%s",
 	    config->clipboard, config->displayControl, config->location, config->graphicsPipeline,
-	    config->printer, config->audioPlayback, config->audioCapture,
+	    driveAdded, config->printer, config->audioPlayback, config->audioCapture,
 	    (config->audioCaptureRate == 0 && config->audioCaptureChannels == 0) ? "negotiated"
-	                                                                         : "fixed");
+	                                                                         : "fixed",
+	    (!driveAdded && driveDetail[0] != '\0') ? " " : "",
+	    (!driveAdded && driveDetail[0] != '\0') ? driveDetail : "");
 	return TRUE;
 }

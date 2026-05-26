@@ -237,7 +237,7 @@ static BOOL printer_ohos_start_printjob(rdpOhosPrintJob* ohos_printjob)
 		return FALSE;
 
 	char* resolved_printer_id = printer_ohos_resolve_printer_id(ohos_printer->printer_id);
-	const char* printer_id = resolved_printer_id;
+	char* printer_id = resolved_printer_id;
 	if (!printer_id || printer_id[0] == '\0')
 	{
 		WLog_WARN(PRINTER_OHOS_TAG, "no HarmonyOS printer is available for print job");
