@@ -59,6 +59,7 @@
 #cmakedefine WITH_MEDIA_FOUNDATION
 #cmakedefine WITH_MEDIACODEC
 #cmakedefine WITH_OHOS_AVCODEC
+#cmakedefine WITH_OHOS_PRINT
 #cmakedefine WITH_GFX_AV1
 
 #cmakedefine WITH_VAAPI

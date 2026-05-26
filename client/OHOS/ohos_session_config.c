@@ -86,6 +86,7 @@ FREERDP_OHOS_SESSION_CONFIG freerdp_ohos_session_config_default(void)
 	config.clipboard = TRUE;
 	config.displayControl = TRUE;
 	config.location = TRUE;
+	config.printer = TRUE;
 	config.audioPlayback = TRUE;
 	config.audioCapture = TRUE;
 	config.audioPlaybackRate = 44100;
@@ -261,8 +262,8 @@ BOOL freerdp_ohos_session_apply_settings(rdpSettings* settings,
 	                           message, messageSize) ||
 	    !ohos_session_set_bool(settings, FreeRDP_RedirectDrives, FALSE, "RedirectDrives", message,
 	                           messageSize) ||
-	    !ohos_session_set_bool(settings, FreeRDP_RedirectPrinters, FALSE, "RedirectPrinters",
-	                           message, messageSize) ||
+	    !ohos_session_set_bool(settings, FreeRDP_RedirectPrinters, config->printer,
+	                           "RedirectPrinters", message, messageSize) ||
 	    !ohos_session_set_bool(settings, FreeRDP_RedirectSmartCards, FALSE, "RedirectSmartCards",
 	                           message, messageSize))
 		return FALSE;
@@ -318,6 +319,16 @@ BOOL freerdp_ohos_session_add_standard_channels(rdpSettings* settings,
 			return FALSE;
 	}
 
+	if (config->printer)
+	{
+		const char* params[] = { "printer", "", "MS Publisher Imagesetter:ohos" };
+		if (!freerdp_client_add_device_channel(settings, ARRAYSIZE(params), params))
+		{
+			ohos_session_format_message(message, messageSize, "set printer device failed");
+			return FALSE;
+		}
+	}
+
 	if (config->audioPlayback)
 	{
 		char rate[32] = { 0 };
@@ -361,10 +372,10 @@ BOOL freerdp_ohos_session_add_standard_channels(rdpSettings* settings,
 
 	ohos_session_format_message(
 	    message, messageSize,
-	    "OHOS FreeRDP channels added: cliprdr=%d disp=%d location=%d rdpgfx=%d rdpsnd=%d audin=%d "
-	    "audinCapture=%s",
+	    "OHOS FreeRDP channels added: cliprdr=%d disp=%d location=%d rdpgfx=%d "
+	    "printer=%d rdpsnd=%d audin=%d audinCapture=%s",
 	    config->clipboard, config->displayControl, config->location, config->graphicsPipeline,
-	    config->audioPlayback, config->audioCapture,
+	    config->printer, config->audioPlayback, config->audioCapture,
 	    (config->audioCaptureRate == 0 && config->audioCaptureChannels == 0) ? "negotiated"
 	                                                                         : "fixed");
 	return TRUE;

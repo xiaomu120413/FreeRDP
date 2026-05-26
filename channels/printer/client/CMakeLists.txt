@@ -26,6 +26,10 @@ if(WITH_CUPS)
   add_channel_client_subsystem(${MODULE_PREFIX} ${CHANNEL_NAME} "cups" "")
 endif()
 
+if(WITH_OHOS_PRINT)
+  add_channel_client_subsystem(${MODULE_PREFIX} ${CHANNEL_NAME} "ohos" "")
+endif()
+
 if(WIN32 AND NOT UWP)
   add_channel_client_subsystem(${MODULE_PREFIX} ${CHANNEL_NAME} "win" "")
 endif()

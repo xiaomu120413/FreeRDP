@@ -1137,6 +1137,8 @@ FREERDP_ENTRY_POINT(
 		const char* backend =
 #if defined(WITH_CUPS)
 		    "cups"
+#elif defined(WITH_OHOS_PRINT)
+		    "ohos"
 #elif defined(_WIN32)
 		    "win"
 #else

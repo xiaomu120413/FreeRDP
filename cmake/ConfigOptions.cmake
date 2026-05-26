@@ -67,6 +67,7 @@ cmake_dependent_option(WITH_MACAUDIO "Enable OSX sound backend" ON "APPLE;NOT IO
 option(WITH_OHAUDIO "Enable HarmonyOS audio playback using OHAudio" OFF)
 option(WITH_OHOS_AVCODEC "Enable HarmonyOS AVCodec H264 decoder probe" OFF)
 option(WITH_OHOS_PASTEBOARD "Enable HarmonyOS Pasteboard clipboard helper" OFF)
+option(WITH_OHOS_PRINT "Enable HarmonyOS native print backend" OFF)
 
 if(WITH_SERVER AND WITH_CHANNELS)
   option(WITH_SERVER_CHANNELS "Build virtual channel plugins" ON)
