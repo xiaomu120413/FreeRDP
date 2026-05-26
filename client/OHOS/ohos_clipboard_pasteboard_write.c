@@ -5,6 +5,38 @@
 
 #include "ohos_clipboard_internal.h"
 
+static BOOL ohos_clipboard_make_data_cross_app(freerdpOhosClipboard* clipboard,
+                                               OH_UdmfData* data, char* errorBuffer,
+                                               size_t errorBufferSize)
+{
+	if (!data)
+	{
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+		                         "UDMF data is unavailable");
+		return FALSE;
+	}
+
+	OH_UdmfProperty* property = OH_UdmfProperty_Create(data);
+	if (!property)
+	{
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+		                         "UDMF property allocation failed");
+		return FALSE;
+	}
+
+	const int rc = OH_UdmfProperty_SetShareOption(property, SHARE_OPTIONS_CROSS_APP);
+	OH_UdmfProperty_Destroy(property);
+	if (rc != UDMF_E_OK)
+	{
+		if (clipboard)
+			clipboard->lastError = (UINT32)rc;
+		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize,
+		                         "UDMF cross-app share setup failed: %d", rc);
+		return FALSE;
+	}
+	return TRUE;
+}
+
 FREERDP_LOCAL BOOL ohos_clipboard_write_plain_text(freerdpOhosClipboard* clipboard, const char* text,
                                             char* errorBuffer, size_t errorBufferSize)
 {
@@ -27,6 +59,8 @@ FREERDP_LOCAL BOOL ohos_clipboard_write_plain_text(freerdpOhosClipboard* clipboa
 		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize, "UDMF allocation failed");
 		goto fail;
 	}
+	if (!ohos_clipboard_make_data_cross_app(clipboard, data, errorBuffer, errorBufferSize))
+		goto fail;
 
 	rc = OH_UdsPlainText_SetContent(plainText, text ? text : "");
 	if (rc == UDMF_E_OK)
@@ -110,6 +144,8 @@ FREERDP_LOCAL BOOL ohos_clipboard_write_html(freerdpOhosClipboard* clipboard, co
 		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize, "UDMF allocation failed");
 		goto fail;
 	}
+	if (!ohos_clipboard_make_data_cross_app(clipboard, data, errorBuffer, errorBufferSize))
+		goto fail;
 
 	const char* htmlValue = html ? html : "";
 	const char* plainValue = (plain && plain[0] != '\0') ? plain : htmlValue;
@@ -208,6 +244,8 @@ FREERDP_LOCAL BOOL ohos_clipboard_write_uri(freerdpOhosClipboard* clipboard, con
 		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize, "UDMF allocation failed");
 		goto fail;
 	}
+	if (!ohos_clipboard_make_data_cross_app(clipboard, data, errorBuffer, errorBufferSize))
+		goto fail;
 
 	if (ohos_clipboard_starts_with_ignore_case(uriValue, "http://") ||
 	    ohos_clipboard_starts_with_ignore_case(uriValue, "https://"))
@@ -373,6 +411,8 @@ FREERDP_LOCAL BOOL ohos_clipboard_write_pixelmap_with_uri(freerdpOhosClipboard* 
 		ohos_clipboard_set_error(clipboard, errorBuffer, errorBufferSize, "UDMF allocation failed");
 		goto fail;
 	}
+	if (!ohos_clipboard_make_data_cross_app(clipboard, data, errorBuffer, errorBufferSize))
+		goto fail;
 
 	rc = OH_UdsPixelMap_SetPixelMap(pixelMap, pixelmapNative);
 	if (rc == UDMF_E_OK)
