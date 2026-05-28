@@ -87,26 +87,14 @@ UINT ohos_rdpgfx_start_frame(RdpgfxClientContext* context, const RDPGFX_START_FR
 {
 	freerdpOhosRdpgfxBridge* bridge = ohos_rdpgfx_bridge_from_context(context);
 	pcRdpgfxStartFrame original = NULL;
-	UINT64 frameCount = 0;
-	BOOL avc444GpuCompositor = FALSE;
 	if (bridge)
 	{
 		EnterCriticalSection(&bridge->lock);
-		frameCount = ++bridge->startFrames;
+		bridge->startFrames++;
 		bridge->activeFrameId = startFrame ? startFrame->frameId : 0;
 		bridge->frameOpen = TRUE;
-		avc444GpuCompositor = bridge->avc444GpuCompositor;
 		original = bridge->hooks.startFrame;
 		LeaveCriticalSection(&bridge->lock);
-		if (avc444GpuCompositor && ((frameCount <= 5U) || ((frameCount % 120U) == 0U)))
-		{
-			ohos_rdpgfx_log(
-			    bridge,
-			    "rdpgfx start frame observed for AVC444 GPU compositor: frameId=%" PRIu32
-			    " timestamp=%" PRIu32 " count=%" PRIu64,
-			    startFrame ? startFrame->frameId : 0, startFrame ? startFrame->timestamp : 0,
-			    frameCount);
-		}
 	}
 	return original ? original(context, startFrame) : ERROR_INTERNAL_ERROR;
 }
@@ -115,7 +103,6 @@ UINT ohos_rdpgfx_end_frame(RdpgfxClientContext* context, const RDPGFX_END_FRAME_
 {
 	freerdpOhosRdpgfxBridge* bridge = ohos_rdpgfx_bridge_from_context(context);
 	pcRdpgfxEndFrame original = NULL;
-	UINT64 frameCount = 0;
 	BOOL avc444GpuCompositor = FALSE;
 	UINT32 activeFrameId = 0;
 	BOOL matchedFrame = FALSE;
@@ -125,7 +112,7 @@ UINT ohos_rdpgfx_end_frame(RdpgfxClientContext* context, const RDPGFX_END_FRAME_
 	if (bridge)
 	{
 		EnterCriticalSection(&bridge->lock);
-		frameCount = ++bridge->endFrames;
+		bridge->endFrames++;
 		activeFrameId = bridge->activeFrameId;
 		matchedFrame =
 		    bridge->frameOpen && (!endFrame || (endFrame->frameId == bridge->activeFrameId));
@@ -135,14 +122,12 @@ UINT ohos_rdpgfx_end_frame(RdpgfxClientContext* context, const RDPGFX_END_FRAME_
 		avc444EndFrame = bridge->avc444EndFrame;
 		userData = bridge->userData;
 		LeaveCriticalSection(&bridge->lock);
-		if (avc444GpuCompositor &&
-		    ((frameCount <= 5U) || ((frameCount % 120U) == 0U) || !matchedFrame))
+		if (avc444GpuCompositor && !matchedFrame)
 		{
 			ohos_rdpgfx_log(bridge,
 			                "rdpgfx end frame observed for AVC444 GPU compositor: frameId=%" PRIu32
-			                " active=%" PRIu32 " matched=%s count=%" PRIu64,
-			                endFrame ? endFrame->frameId : 0, activeFrameId,
-			                matchedFrame ? "yes" : "no", frameCount);
+			                " active=%" PRIu32 " matched=no",
+			                endFrame ? endFrame->frameId : 0, activeFrameId);
 		}
 	}
 	status = original ? original(context, endFrame) : ERROR_INTERNAL_ERROR;
@@ -325,12 +310,6 @@ BOOL freerdp_ohos_rdpgfx_bridge_attach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 	gfx->CapsConfirm = ohos_rdpgfx_caps_confirm;
 
 	ohos_rdpgfx_record_connection_caps_snapshot(bridge, gfx);
-	ohos_rdpgfx_log(bridge,
-	                "OHOS rdpgfx bridge attached: avc420Surface=%s avc444GpuCompositor=%s "
-	                "avc444SuppressGdi=per-command-success target=%ux%u",
-	                config->avc420SurfaceMode ? "on" : "off",
-	                config->avc444GpuCompositor ? "on" : "off", config->surfaceTargetWidth,
-	                config->surfaceTargetHeight);
 	ohos_rdpgfx_format_message(message, messageSize,
 	                           "OHOS rdpgfx bridge attached: avc444GpuCompositor=%s",
 	                           config->avc444GpuCompositor ? "on" : "off");

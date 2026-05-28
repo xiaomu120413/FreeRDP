@@ -11,16 +11,8 @@ void ohos_rdpgfx_record_surface_command(freerdpOhosRdpgfxBridge* bridge,
 	if (!bridge || !command)
 		return;
 
-	UINT64 total = 0;
-	UINT64 clear = 0;
-	UINT64 progressive = 0;
-	UINT64 avc420 = 0;
-	UINT64 avc444 = 0;
-	UINT64 raw = 0;
-	UINT64 unknown = 0;
-
 	EnterCriticalSection(&bridge->lock);
-	total = ++bridge->surfaceCommands;
+	bridge->surfaceCommands++;
 	bridge->lastCodecId = command->codecId;
 	bridge->lastSurfaceId = command->surfaceId;
 	bridge->lastCommandWidth = command->width;
@@ -29,56 +21,38 @@ void ohos_rdpgfx_record_surface_command(freerdpOhosRdpgfxBridge* bridge,
 	switch (command->codecId)
 	{
 		case RDPGFX_CODECID_UNCOMPRESSED:
-			raw = ++bridge->codecUncompressed;
+			bridge->codecUncompressed++;
 			break;
 		case RDPGFX_CODECID_CAVIDEO:
 			bridge->codecCavideo++;
 			break;
 		case RDPGFX_CODECID_CLEARCODEC:
-			clear = ++bridge->codecClearCodec;
+			bridge->codecClearCodec++;
 			break;
 		case RDPGFX_CODECID_PLANAR:
 			bridge->codecPlanar++;
 			break;
 		case RDPGFX_CODECID_CAPROGRESSIVE:
 		case RDPGFX_CODECID_CAPROGRESSIVE_V2:
-			progressive = ++bridge->codecProgressive;
+			bridge->codecProgressive++;
 			break;
 		case RDPGFX_CODECID_AVC420:
-			avc420 = ++bridge->codecAvc420;
+			bridge->codecAvc420++;
 			break;
 		case RDPGFX_CODECID_ALPHA:
 			bridge->codecAlpha++;
 			break;
 		case RDPGFX_CODECID_AVC444:
-			avc444 = ++bridge->codecAvc444;
+			bridge->codecAvc444++;
 			break;
 		case RDPGFX_CODECID_AVC444v2:
 			bridge->codecAvc444v2++;
 			break;
 		default:
-			unknown = ++bridge->codecUnknown;
+			bridge->codecUnknown++;
 			break;
 	}
-	clear = bridge->codecClearCodec;
-	progressive = bridge->codecProgressive;
-	avc420 = bridge->codecAvc420;
-	avc444 = bridge->codecAvc444;
-	raw = bridge->codecUncompressed;
-	unknown = bridge->codecUnknown;
 	LeaveCriticalSection(&bridge->lock);
-
-	if (total <= 3U || (total % 600U) == 0U)
-	{
-		ohos_rdpgfx_log(bridge,
-		                "rdpgfx surface command: total=%" PRIu64 " codec=%s(%" PRIu32
-		                ") surface=%" PRIu16 " rect=%" PRIu32 ",%" PRIu32 " %" PRIu32 "x%" PRIu32
-		                " counts=clear:%" PRIu64 ",progressive:%" PRIu64 ",avc420:%" PRIu64
-		                ",avc444:%" PRIu64 ",raw:%" PRIu64 ",unknown:%" PRIu64,
-		                total, freerdp_ohos_rdpgfx_codec_name(command->codecId), command->codecId,
-		                command->surfaceId, command->left, command->top, command->width,
-		                command->height, clear, progressive, avc420, avc444, raw, unknown);
-	}
 }
 
 gdiGfxSurface* ohos_rdpgfx_get_gdi_surface(RdpgfxClientContext* context, UINT32 surfaceId)

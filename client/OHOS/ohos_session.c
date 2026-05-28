@@ -216,7 +216,6 @@ static BOOL ohos_session_enable_client_channels(freerdpOhosSession* session)
 	}
 
 	session->instance->LoadChannels = freerdp_client_load_channels;
-	ohos_session_emit_log(session, "FreeRDP client channel loader registered by OHOS session");
 	return TRUE;
 }
 
@@ -265,10 +264,6 @@ static BOOL ohos_session_apply_options(freerdpOhosSession* session,
 		    detail[0] == '\0' ? "FreeRDP OHOS storage settings helper failed" : detail);
 		return FALSE;
 	}
-	ohos_session_emit_log(session,
-	                      detail[0] == '\0' ? "OHOS FreeRDP storage path applied by session API"
-	                                        : detail);
-
 	memset(detail, 0, sizeof(detail));
 	if (!freerdp_ohos_session_apply_connection_settings(settings, &options->connection, detail,
 	                                                    sizeof(detail)))
@@ -279,7 +274,6 @@ static BOOL ohos_session_apply_options(freerdpOhosSession* session,
 		                                 : detail);
 		return FALSE;
 	}
-	ohos_session_emit_log(session, "OHOS FreeRDP connection settings applied by session API");
 
 	memset(detail, 0, sizeof(detail));
 	if (!freerdp_ohos_session_apply_settings(settings, &options->session, detail, sizeof(detail)))
@@ -289,9 +283,6 @@ static BOOL ohos_session_apply_options(freerdpOhosSession* session,
 		    detail[0] == '\0' ? "FreeRDP OHOS session settings helper failed" : detail);
 		return FALSE;
 	}
-	ohos_session_emit_log(session,
-	                      detail[0] == '\0' ? "OHOS FreeRDP settings applied by session API"
-	                                        : detail);
 
 	memset(detail, 0, sizeof(detail));
 	if (!freerdp_ohos_session_add_standard_channels(settings, &options->session, detail,
@@ -302,10 +293,8 @@ static BOOL ohos_session_apply_options(freerdpOhosSession* session,
 		    detail[0] == '\0' ? "FreeRDP OHOS standard channel helper failed" : detail);
 		return FALSE;
 	}
-	ohos_session_emit_log(session,
-	                      detail[0] == '\0'
-	                          ? "OHOS FreeRDP standard channels added by session API"
-	                          : detail);
+	if (detail[0] != '\0')
+		ohos_session_emit_log(session, detail);
 	return TRUE;
 }
 
@@ -328,8 +317,9 @@ static BOOL ohos_session_configure(freerdpOhosSession* session,
 	}
 	session->contextCreated = TRUE;
 
-	if (!ohos_session_register_location(session) || !ohos_session_enable_client_channels(session) ||
-	    !ohos_session_apply_options(session, options))
+	if (options->session.location && !ohos_session_register_location(session))
+		return FALSE;
+	if (!ohos_session_enable_client_channels(session) || !ohos_session_apply_options(session, options))
 		return FALSE;
 
 	if (!freerdp_ohos_certificate_register_callbacks(
@@ -338,11 +328,9 @@ static BOOL ohos_session_configure(freerdpOhosSession* session,
 	{
 		ohos_session_set_diagnostics(
 		    session, "%s",
-		    detail[0] == '\0' ? "OHOS certificate callback registration failed" : detail);
+		                     detail[0] == '\0' ? "OHOS certificate callback registration failed" : detail);
 		return FALSE;
 	}
-	ohos_session_emit_log(session,
-	                      detail[0] == '\0' ? "OHOS certificate callbacks registered" : detail);
 
 	session->teardownPending = TRUE;
 	if (session->callbacks.Configure &&
@@ -439,13 +427,10 @@ BOOL freerdp_ohos_session_connect(freerdpOhosSession* session,
 	}
 
 	ohos_session_emit_state(session, "Connecting");
-	ohos_session_emit_log(session, "starting FreeRDP connect from OHOS session API");
 	const BOOL rc = freerdp_connect(session->instance);
 	UINT32 lastError = session->instance && session->instance->context
 	                       ? freerdp_get_last_error(session->instance->context)
 	                       : UINT32_MAX;
-	ohos_session_emit_log(session, rc ? "freerdp_connect returned true"
-	                                  : "freerdp_connect returned false");
 
 	if (!ohos_session_should_continue(session))
 	{
@@ -470,19 +455,14 @@ BOOL freerdp_ohos_session_connect(freerdpOhosSession* session,
 	if (session->callbacks.Connected)
 		session->callbacks.Connected(session->instance, session->instance->context,
 		                             session->callbacks.userData);
-	ohos_session_emit_log(session, "FreeRDP event loop started by OHOS session API");
 
 	while (ohos_session_should_continue(session) &&
 	       !freerdp_shall_disconnect_context(session->instance->context))
 	{
 		char inputDetail[256] = { 0 };
-		if (freerdp_ohos_input_queue_drain(session->inputQueue,
-		                                   session->instance->context, inputDetail,
-		                                   sizeof(inputDetail)) &&
-		    inputDetail[0] != '\0')
-		{
-			ohos_session_emit_log(session, inputDetail);
-		}
+		(void)freerdp_ohos_input_queue_drain(session->inputQueue,
+		                                     session->instance->context, inputDetail,
+		                                     sizeof(inputDetail));
 
 		if (session->callbacks.Pump &&
 		    !session->callbacks.Pump(session->instance, session->instance->context,

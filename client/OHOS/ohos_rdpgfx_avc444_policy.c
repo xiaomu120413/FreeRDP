@@ -371,7 +371,6 @@ BOOL ohos_rdpgfx_record_avc444_gpu_candidate(freerdpOhosRdpgfxBridge* bridge,
 	{
 		FREERDP_OHOS_RDPGFX_AVC444_COMMAND_INFO info = { 0 };
 		BOOL callbackReady = FALSE;
-		UINT64 callbackReadyCount = 0;
 		const UINT validationStatus = ohos_rdpgfx_validate_avc444_gpu_surface_update(
 		    bridge, context, command, bs, &surfaceWidth, &surfaceHeight);
 		if (validationStatus != CHANNEL_RC_OK)
@@ -414,9 +413,7 @@ BOOL ohos_rdpgfx_record_avc444_gpu_candidate(freerdpOhosRdpgfxBridge* bridge,
 		EnterCriticalSection(&bridge->lock);
 		bridge->avc444GpuCallbacks++;
 		if (callbackReady)
-		{
-			callbackReadyCount = ++bridge->avc444GpuCallbackReady;
-		}
+			bridge->avc444GpuCallbackReady++;
 		LeaveCriticalSection(&bridge->lock);
 
 		if (callbackReady)
@@ -437,17 +434,6 @@ BOOL ohos_rdpgfx_record_avc444_gpu_candidate(freerdpOhosRdpgfxBridge* bridge,
 				                "AVC444 GPU compositor completed inter-frame GPU update ordering: "
 				                "FreeRDP dirty state skipped, gpuPresentCallback=%s frame=%" PRIu32,
 				                endFrameCallback ? "called" : "none", frameId);
-			}
-			if (ohos_rdpgfx_should_log_counter(callbackReadyCount))
-			{
-				ohos_rdpgfx_log(
-				    bridge,
-				    "AVC444 GPU compositor handled command; suppressing FreeRDP native GDI "
-				    "for this surface command without touching FreeRDP dirty state: codec=%s "
-				    "surface=%" PRIu32 " frame=%" PRIu32 " LC=%" PRIu32 " stream1Bytes=%" PRIu32
-				    " stream2Bytes=%" PRIu32 " handled=%" PRIu64,
-				    freerdp_ohos_rdpgfx_codec_name(command->codecId), command->surfaceId, frameId,
-				    lc, stream1Bytes, stream2Bytes, callbackReadyCount);
 			}
 			return TRUE;
 		}
@@ -471,7 +457,7 @@ BOOL ohos_rdpgfx_record_avc444_gpu_candidate(freerdpOhosRdpgfxBridge* bridge,
 	gdiPreserved = ++bridge->avc444GpuGdiPreserved;
 	LeaveCriticalSection(&bridge->lock);
 
-	if ((candidates <= 8U) || ((candidates % 120U) == 0U))
+	if (ohos_rdpgfx_should_log_counter(candidates))
 	{
 		ohos_rdpgfx_log(bridge,
 		                "AVC444 GPU compositor did not request GDI suppression for this command; "

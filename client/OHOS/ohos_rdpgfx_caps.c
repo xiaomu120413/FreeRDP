@@ -86,10 +86,7 @@ void ohos_rdpgfx_record_connection_caps_snapshot(freerdpOhosRdpgfxBridge* bridge
 	const FREERDP_OHOS_RDPGFX_PLUGIN_SNAPSHOT* plugin =
 	    (const FREERDP_OHOS_RDPGFX_PLUGIN_SNAPSHOT*)gfx->handle;
 	if (plugin->connectionCaps.version == 0)
-	{
-		ohos_rdpgfx_log(bridge, "RDPGFX connection caps snapshot unavailable: version=0");
 		return;
-	}
 
 	ohos_rdpgfx_record_caps_values(bridge, plugin->connectionCaps.version,
 	                               plugin->connectionCaps.flags, "connection-caps-snapshot");
@@ -144,21 +141,6 @@ void ohos_rdpgfx_record_caps_advertise(freerdpOhosRdpgfxBridge* bridge,
 	                " v81Version=0x%08" PRIX32 " v81Flags=0x%08" PRIX32 " advertises=%" PRIu32,
 	                capsAdvertise->capsSetCount, advertisedAvc420 ? "yes" : "no", advertisedVersion,
 	                advertisedFlags, total);
-	for (UINT32 index = 0; index < capsAdvertise->capsSetCount; index++)
-	{
-		const RDPGFX_CAPSET* capsSet = &(capsAdvertise->capsSets[index]);
-		const BOOL avc420 =
-		    freerdp_ohos_rdpgfx_caps_confirm_is_avc420(capsSet->version, capsSet->flags);
-		const BOOL avc444 =
-		    freerdp_ohos_rdpgfx_caps_confirm_is_avc444(capsSet->version, capsSet->flags);
-		ohos_rdpgfx_log(
-		    bridge,
-		    "rdpgfx caps advertise[%" PRIu32 "]: version=0x%08" PRIX32 " length=%" PRIu32
-		    " flags=0x%08" PRIX32 " avc420=%s avcDisabled=%s avc444Cap=%s",
-		    index, capsSet->version, capsSet->length, capsSet->flags, avc420 ? "yes" : "no",
-		    (capsSet->flags & RDPGFX_CAPS_FLAG_AVC_DISABLED) != 0 ? "yes" : "no",
-		    avc444 ? "yes" : "no");
-	}
 }
 
 UINT ohos_rdpgfx_caps_advertise(RdpgfxClientContext* context,

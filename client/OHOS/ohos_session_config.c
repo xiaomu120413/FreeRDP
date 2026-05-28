@@ -192,7 +192,7 @@ FREERDP_OHOS_SESSION_CONFIG freerdp_ohos_session_config_default(void)
 	FREERDP_OHOS_SESSION_CONFIG config = { 0 };
 	config.clipboard = TRUE;
 	config.displayControl = TRUE;
-	config.location = TRUE;
+	config.location = FALSE;
 	config.drive = TRUE;
 	config.printer = TRUE;
 	config.audioPlayback = TRUE;
