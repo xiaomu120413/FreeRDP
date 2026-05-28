@@ -54,7 +54,7 @@ static UINT rdpsnd_ohos_play(rdpsndDevicePlugin* device, const BYTE* data, size_
 		}
 		ohos->started = TRUE;
 		g_rendererStartCount++;
-		rdpsnd_ohos_log(WLOG_INFO, "renderer delayed start ok queue=%" PRIu32
+		rdpsnd_ohos_log(WLOG_DEBUG, "renderer delayed start ok queue=%" PRIu32
 		                          " starts=%" PRIu64 " peak=%" PRIu32,
 		                g_lastQueueBytes, g_rendererStartCount, peak);
 	}
@@ -75,7 +75,7 @@ static void rdpsnd_ohos_close(rdpsndDevicePlugin* device)
 	if (!ohos)
 		return;
 
-	rdpsnd_ohos_log(WLOG_INFO, "closing renderer queue=%" PRIu32 " playCalls=%" PRIu64,
+	rdpsnd_ohos_log(WLOG_DEBUG, "closing renderer queue=%" PRIu32 " playCalls=%" PRIu64,
 	                g_lastQueueBytes, g_playCount);
 	rdpsnd_ohos_release_renderer(ohos);
 	g_closeCount++;
@@ -130,7 +130,7 @@ FREERDP_ENTRY_POINT(UINT VCAPITYPE ohos_freerdp_rdpsnd_client_subsystem_entry(
 
 	pEntryPoints->pRegisterRdpsndDevice(pEntryPoints->rdpsnd, &ohos->device);
 	g_registeredCount++;
-	rdpsnd_ohos_log(WLOG_INFO, "rdpsnd OHAudio device registered count=%" PRIu64,
+	rdpsnd_ohos_log(WLOG_DEBUG, "rdpsnd OHAudio device registered count=%" PRIu64,
 	                g_registeredCount);
 	return CHANNEL_RC_OK;
 }

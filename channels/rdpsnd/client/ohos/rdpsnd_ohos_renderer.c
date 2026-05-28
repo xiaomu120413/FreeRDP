@@ -31,7 +31,7 @@ static int32_t rdpsnd_ohos_on_stream_event(WINPR_ATTR_UNUSED OH_AudioRenderer* r
 {
 	g_deviceChangeCallbackCount++;
 	g_lastDeviceChangeReason = (UINT32)event;
-	rdpsnd_ohos_log(WLOG_INFO, "renderer stream event=%" PRIu32 " count=%" PRIu64,
+	rdpsnd_ohos_log(WLOG_DEBUG, "renderer stream event=%" PRIu32 " count=%" PRIu64,
 	                g_lastDeviceChangeReason, g_deviceChangeCallbackCount);
 	return 0;
 }
@@ -74,7 +74,7 @@ void rdpsnd_ohos_release_renderer(rdpsndOhosPlugin* ohos)
 		return;
 
 	rdpsnd_ohos_update_renderer_stats(ohos);
-	rdpsnd_ohos_log(WLOG_INFO,
+	rdpsnd_ohos_log(WLOG_DEBUG,
 	                "releasing renderer state=%" PRIu32 " underflows=%" PRIu32
 	                " callbacks=%" PRIu64 " rendered=%" PRIu64 " underrunBytes=%" PRIu64,
 	                g_lastRendererState, g_lastUnderflowCount, g_callbackCount, g_renderedBytes,
@@ -146,7 +146,7 @@ BOOL rdpsnd_ohos_open(rdpsndDevicePlugin* device, const AUDIO_FORMAT* format, UI
 	WINPR_ASSERT(ohos);
 	WINPR_ASSERT(format);
 
-	rdpsnd_ohos_log(WLOG_INFO,
+	rdpsnd_ohos_log(WLOG_DEBUG,
 	                "opening renderer tag=%" PRIu16 " rate=%" PRIu32 " channels=%" PRIu16
 	                " bits=%" PRIu16 " blockAlign=%" PRIu16 " avgBytes=%" PRIu32
 	                " cbSize=%" PRIu16 " requestedLatency=%" PRIu32,
@@ -284,7 +284,7 @@ BOOL rdpsnd_ohos_open(rdpsndDevicePlugin* device, const AUDIO_FORMAT* format, UI
 	g_lastBitsPerSample = ohos->bitsPerSample;
 	g_lastLatencyMs = ohos->latencyMs;
 	rdpsnd_ohos_update_renderer_stats(ohos);
-	rdpsnd_ohos_log(WLOG_INFO,
+	rdpsnd_ohos_log(WLOG_DEBUG,
 	                "renderer prepared rate=%" PRIu32 " channels=%" PRIu16 " bits=%" PRIu16
 	                " blockAlign=%" PRIu16 " queue=%zu latency=%" PRIu32 "ms state=%" PRIu32,
 	                ohos->rate, ohos->channels, ohos->bitsPerSample, ohos->blockAlign,

@@ -68,7 +68,7 @@ void ohos_rdpgfx_record_surface_command(freerdpOhosRdpgfxBridge* bridge,
 	unknown = bridge->codecUnknown;
 	LeaveCriticalSection(&bridge->lock);
 
-	if (total <= 5U || (total % 120U) == 0U)
+	if (total <= 3U || (total % 600U) == 0U)
 	{
 		ohos_rdpgfx_log(bridge,
 		                "rdpgfx surface command: total=%" PRIu64 " codec=%s(%" PRIu32

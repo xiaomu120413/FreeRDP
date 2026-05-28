@@ -121,7 +121,7 @@ BOOL rdpsnd_ohos_default_format(WINPR_ATTR_UNUSED rdpsndDevicePlugin* device,
 	defaultFormat->cbSize = 0;
 
 	g_defaultFormatCount++;
-	rdpsnd_ohos_log(WLOG_INFO,
+	rdpsnd_ohos_log(WLOG_DEBUG,
 	                "default PCM format sourceTag=%" PRIu16 " sourceRate=%" PRIu32
 	                " sourceChannels=%" PRIu16 " -> rate=%" PRIu32 " channels=%" PRIu16
 	                " bits=%" PRIu16 " blockAlign=%" PRIu16,
@@ -146,7 +146,7 @@ UINT rdpsnd_ohos_server_format_announce(WINPR_ATTR_UNUSED rdpsndDevicePlugin* de
 	}
 	g_lastDirectSupportedServerFormatCount = supported;
 
-	rdpsnd_ohos_log(WLOG_INFO, "server formats announced count=%zu directSupported=%zu", count,
+	rdpsnd_ohos_log(WLOG_DEBUG, "server formats announced count=%zu directSupported=%zu", count,
 	                supported);
 	return CHANNEL_RC_OK;
 }

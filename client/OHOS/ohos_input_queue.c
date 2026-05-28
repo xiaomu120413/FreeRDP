@@ -564,12 +564,20 @@ BOOL freerdp_ohos_input_queue_drain(freerdpOhosInputQueue* queue, rdpContext* co
 	pthread_mutex_lock(&queue->mutex);
 	queue->stats.sent += sent;
 	queue->stats.dropped += (uint32_t)(pendingCount - sent);
-	ohos_input_set_diagnostics(
-	    queue,
-	    "FreeRDP input dispatched on worker thread: %" PRIu32
-	    " event(s), total=%" PRIu32 " dropped=%" PRIu32 " coalesced=%" PRIu32,
-	    sent, queue->stats.sent, queue->stats.dropped, queue->stats.coalesced);
-	ohos_input_format(message, messageSize, "%s", queue->diagnostics);
+	if (sent != pendingCount)
+	{
+		ohos_input_set_diagnostics(
+		    queue,
+		    "FreeRDP input dispatch incomplete on worker thread: %" PRIu32
+		    "/%zu event(s), total=%" PRIu32 " dropped=%" PRIu32 " coalesced=%" PRIu32,
+		    sent, pendingCount, queue->stats.sent, queue->stats.dropped,
+		    queue->stats.coalesced);
+		ohos_input_format(message, messageSize, "%s", queue->diagnostics);
+	}
+	else
+	{
+		ohos_input_format(message, messageSize, "");
+	}
 	pthread_mutex_unlock(&queue->mutex);
 	return sent == pendingCount ? TRUE : FALSE;
 }
