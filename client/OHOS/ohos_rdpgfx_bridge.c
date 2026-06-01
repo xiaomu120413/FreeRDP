@@ -176,8 +176,6 @@ void freerdp_ohos_rdpgfx_bridge_reset(freerdpOhosRdpgfxBridge* bridge, BOOL requ
 	bridge->requested = requested;
 	bridge->h264Requested = h264Requested;
 	bridge->gdiAttached = FALSE;
-	bridge->avc420SurfaceMode = FALSE;
-	bridge->avc420SurfaceActive = FALSE;
 	bridge->avc444GpuCompositor = FALSE;
 	bridge->avc444EndFrame = NULL;
 	bridge->avc444OutputState = NULL;
@@ -199,8 +197,6 @@ void freerdp_ohos_rdpgfx_bridge_reset(freerdpOhosRdpgfxBridge* bridge, BOOL requ
 	bridge->codecAvc444 = 0;
 	bridge->codecAvc444v2 = 0;
 	bridge->codecUnknown = 0;
-	bridge->avc420SurfaceSubrectSkips = 0;
-	bridge->avc420SurfaceNoDirect = 0;
 	bridge->avc444GpuCandidates = 0;
 	bridge->avc444GpuDisabled = 0;
 	bridge->avc444GpuGdiPreserved = 0;
@@ -262,12 +258,10 @@ BOOL freerdp_ohos_rdpgfx_bridge_attach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 	EnterCriticalSection(&bridge->lock);
 	if (bridge->gfx == gfx)
 	{
-		bridge->avc420SurfaceMode = config->avc420SurfaceMode;
 		bridge->avc444GpuCompositor = config->avc444GpuCompositor;
 		bridge->surfaceTargetWidth = config->surfaceTargetWidth;
 		bridge->surfaceTargetHeight = config->surfaceTargetHeight;
 		bridge->log = config->log;
-		bridge->avc420SurfaceCommand = config->avc420SurfaceCommand;
 		bridge->avc444SurfaceCommand = config->avc444SurfaceCommand;
 		bridge->avc444EndFrame = config->avc444EndFrame;
 		bridge->avc444OutputState = config->avc444OutputState;
@@ -285,13 +279,10 @@ BOOL freerdp_ohos_rdpgfx_bridge_attach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 	bridge->hooks.surfaceCommand = gfx->SurfaceCommand;
 	bridge->hooks.capsAdvertise = gfx->CapsAdvertise;
 	bridge->hooks.capsConfirm = gfx->CapsConfirm;
-	bridge->avc420SurfaceMode = config->avc420SurfaceMode;
-	bridge->avc420SurfaceActive = FALSE;
 	bridge->avc444GpuCompositor = config->avc444GpuCompositor;
 	bridge->surfaceTargetWidth = config->surfaceTargetWidth;
 	bridge->surfaceTargetHeight = config->surfaceTargetHeight;
 	bridge->log = config->log;
-	bridge->avc420SurfaceCommand = config->avc420SurfaceCommand;
 	bridge->avc444SurfaceCommand = config->avc444SurfaceCommand;
 	bridge->avc444EndFrame = config->avc444EndFrame;
 	bridge->avc444OutputState = config->avc444OutputState;
@@ -338,7 +329,6 @@ void freerdp_ohos_rdpgfx_bridge_detach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 		bridge->hooks.capsAdvertise = NULL;
 		bridge->hooks.capsConfirm = NULL;
 		bridge->gdiAttached = FALSE;
-		bridge->avc420SurfaceActive = FALSE;
 		bridge->frameOpen = FALSE;
 		bridge->activeFrameId = 0;
 		bridge->avc444EndFrame = NULL;
@@ -374,7 +364,5 @@ void freerdp_ohos_rdpgfx_bridge_set_gdi_attached(freerdpOhosRdpgfxBridge* bridge
 
 	EnterCriticalSection(&bridge->lock);
 	bridge->gdiAttached = attached;
-	if (!attached)
-		bridge->avc420SurfaceActive = FALSE;
 	LeaveCriticalSection(&bridge->lock);
 }

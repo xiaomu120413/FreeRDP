@@ -29,7 +29,6 @@
 #include <multimedia/player_framework/native_avcodec_videoencoder.h>
 #include <multimedia/player_framework/native_avcodec_videodecoder.h>
 #include <multimedia/player_framework/native_avformat.h>
-#include <native_window/external_window.h>
 
 #define TAG FREERDP_TAG("codec.ohos-avcodec")
 
@@ -37,7 +36,12 @@
 #define OHOS_AVCODEC_OUTPUT_QUEUE_LENGTH 32
 #define OHOS_AVCODEC_INPUT_WAIT_MS 50
 #define OHOS_AVCODEC_OUTPUT_WAIT_MS 250
-#define OHOS_AVCODEC_SURFACE_RENDER_INTERVAL_NS 16666667ULL
+#define OHOS_AVCODEC_DECODER_OUTPUT_WAIT_MS 50
+#define OHOS_AVCODEC_DECODER_INPUT_TIMEOUT_US 8000
+#define OHOS_AVCODEC_DECODER_OUTPUT_TIMEOUT_US 8000
+#define OHOS_AVCODEC_DECODER_OUTPUT_FOLLOWUP_TIMEOUT_US 4000
+#define OHOS_AVCODEC_DECODER_OUTPUT_DEADLINE_US 20000
+#define OHOS_AVCODEC_DECODER_OUTPUT_MAX_ATTEMPTS 5
 
 typedef struct
 {
@@ -51,18 +55,21 @@ typedef struct
 	UINT32 size;
 	uint32_t flags;
 	int64_t pts;
+	int32_t pixelFormat;
+	UINT32 width;
+	UINT32 height;
+	UINT32 stride;
+	UINT32 sliceHeight;
 } OHOS_AVCODEC_OUTPUT_SLOT;
 
 typedef struct
 {
 	OH_AVCodec* decoder;
 	OH_AVCodec* encoder;
-	OHNativeWindow* outputSurface;
 	BOOL started;
-	BOOL surfaceMode;
+	BOOL decoderBufferMode;
 	BOOL encoderMode;
 	BOOL primitivesReady;
-	UINT64 surfaceGeneration;
 	UINT32 width;
 	UINT32 height;
 	UINT64 decodeCalls;
@@ -74,9 +81,12 @@ typedef struct
 	UINT64 inputWaitTimeouts;
 	UINT64 outputWaitTimeouts;
 	UINT64 droppedOutputFrames;
-	UINT64 surfaceRefreshes;
-	UINT64 surfaceInvalidations;
-	UINT64 lastSurfaceRenderNs;
+	UINT64 decoderRefreshes;
+	int32_t decoderPixelFormat;
+	UINT32 outputWidth;
+	UINT32 outputHeight;
+	UINT32 outputStride;
+	UINT32 outputSliceHeight;
 	BOOL inputQueueFullLogged;
 	BOOL outputQueueFullLogged;
 	BOOL prependCodecConfig;
@@ -108,7 +118,7 @@ typedef struct
 typedef struct
 {
 	UINT64 decoderAttempts;
-	UINT64 surfaceDecoderActive;
+	UINT64 decoderActive;
 	UINT64 decodeCalls;
 	UINT64 decodedFrames;
 	UINT64 noOutputFrames;
@@ -116,17 +126,13 @@ typedef struct
 	UINT64 inputWaitTimeouts;
 	UINT64 droppedOutputFrames;
 	UINT64 fallbackRequests;
-	UINT64 surfaceRefreshes;
-	UINT64 surfaceInvalidations;
-	UINT64 lastSurfaceGeneration;
+	UINT64 decoderRefreshes;
 	UINT32 lastWidth;
 	UINT32 lastHeight;
 	int32_t lastAsyncError;
 	char lastFallbackReason[160];
 } OHOS_AVCODEC_DIAGNOSTICS;
 
-FREERDP_API BOOL freerdp_ohos_avcodec_set_output_surface(void* window, UINT32 width, UINT32 height,
-                                                          BOOL enabled);
 FREERDP_API BOOL freerdp_ohos_avcodec_set_fallback_callback(
     pfnH264OhosAvcodecFallbackCallback callback, void* userData);
 FREERDP_API const char* freerdp_ohos_avcodec_get_diagnostics(void);
@@ -135,19 +141,10 @@ FREERDP_LOCAL void ohos_avcodec_record_decoder_attempt(void);
 FREERDP_LOCAL void ohos_avcodec_record_decoder_active(const H264_CONTEXT_OHOS_AVCODEC* sys);
 FREERDP_LOCAL void ohos_avcodec_record_progress(const H264_CONTEXT_OHOS_AVCODEC* sys);
 FREERDP_LOCAL void ohos_avcodec_record_fallback(const char* reason);
-FREERDP_LOCAL void ohos_avcodec_get_surface_config_for_diagnostics(
-    BOOL* enabled, UINT32* width, UINT32* height, UINT64* generation);
 
 FREERDP_LOCAL int ohos_avcodec_request_software_fallback(H264_CONTEXT* h264,
                                                          H264_CONTEXT_OHOS_AVCODEC* sys,
                                                          const char* reason);
-FREERDP_LOCAL BOOL ohos_avcodec_get_output_surface(OHNativeWindow** window, UINT32* width,
-                                                   UINT32* height, UINT64* generation);
-FREERDP_LOCAL BOOL h264_context_ohos_output_surface_available(UINT32 width, UINT32 height);
-FREERDP_LOCAL BOOL ohos_avcodec_surface_target_available(const H264_CONTEXT* h264);
-FREERDP_LOCAL BOOL ohos_avcodec_surface_config_current(UINT32 width, UINT32 height,
-                                                       const H264_CONTEXT_OHOS_AVCODEC* sys);
-FREERDP_LOCAL BOOL ohos_avcodec_mark_surface_decoder_active_logged(void);
 
 FREERDP_LOCAL void ohos_avcodec_make_deadline(struct timespec* deadline, UINT32 timeoutMs);
 FREERDP_LOCAL UINT64 ohos_avcodec_now_ns(void);
@@ -155,6 +152,11 @@ FREERDP_LOCAL BOOL ohos_avcodec_pop_input(H264_CONTEXT_OHOS_AVCODEC* sys, uint32
                                           OH_AVBuffer** buffer);
 FREERDP_LOCAL BOOL ohos_avcodec_wait_for_input(H264_CONTEXT_OHOS_AVCODEC* sys, uint32_t* index,
                                                OH_AVBuffer** buffer);
+FREERDP_LOCAL BOOL ohos_avcodec_pop_output(H264_CONTEXT_OHOS_AVCODEC* sys,
+                                           OHOS_AVCODEC_OUTPUT_SLOT* slot);
+FREERDP_LOCAL BOOL ohos_avcodec_wait_for_output(H264_CONTEXT_OHOS_AVCODEC* sys,
+                                                OHOS_AVCODEC_OUTPUT_SLOT* slot);
+FREERDP_LOCAL void ohos_avcodec_clear_output_queue(H264_CONTEXT_OHOS_AVCODEC* sys);
 FREERDP_LOCAL void ohos_avcodec_on_error(OH_AVCodec* codec, int32_t errorCode, void* userData);
 FREERDP_LOCAL void ohos_avcodec_on_stream_changed(OH_AVCodec* codec, OH_AVFormat* format,
                                                   void* userData);
@@ -165,13 +167,22 @@ FREERDP_LOCAL void ohos_avcodec_on_new_output_buffer(OH_AVCodec* codec, uint32_t
 FREERDP_LOCAL void ohos_avcodec_reset_async_state(H264_CONTEXT_OHOS_AVCODEC* sys);
 FREERDP_LOCAL void ohos_avcodec_close_decoder(H264_CONTEXT_OHOS_AVCODEC* sys);
 FREERDP_LOCAL void ohos_avcodec_close_encoder(H264_CONTEXT_OHOS_AVCODEC* sys);
+FREERDP_LOCAL const char* ohos_avcodec_decoder_pixel_format_name(int32_t pixelFormat);
+FREERDP_LOCAL int32_t ohos_avcodec_choose_decoder_pixel_format(OH_AVCapability* capability,
+                                                               wLog* log);
+FREERDP_LOCAL BOOL ohos_avcodec_update_decoder_output_description(
+    H264_CONTEXT* h264, H264_CONTEXT_OHOS_AVCODEC* sys, const char* reason);
 FREERDP_LOCAL BOOL ohos_avcodec_configure_decoder(H264_CONTEXT* h264,
-                                                  H264_CONTEXT_OHOS_AVCODEC* sys,
-                                                  OHNativeWindow* outputSurface);
+                                                  H264_CONTEXT_OHOS_AVCODEC* sys);
 FREERDP_LOCAL BOOL ohos_avcodec_open_decoder(H264_CONTEXT* h264,
                                              H264_CONTEXT_OHOS_AVCODEC* sys);
-FREERDP_LOCAL int ohos_avcodec_prepare_surface_decoder(H264_CONTEXT* h264,
-                                                       H264_CONTEXT_OHOS_AVCODEC* sys);
+FREERDP_LOCAL int ohos_avcodec_prepare_buffer_decoder(H264_CONTEXT* h264,
+                                                      H264_CONTEXT_OHOS_AVCODEC* sys);
+FREERDP_LOCAL BOOL ohos_avcodec_copy_output_slot_to_h264(H264_CONTEXT* h264,
+                                                         const OHOS_AVCODEC_OUTPUT_SLOT* slot);
+FREERDP_LOCAL int ohos_avcodec_decompress_buffer(H264_CONTEXT* h264,
+                                                 H264_CONTEXT_OHOS_AVCODEC* sys,
+                                                 const BYTE* pSrcData, UINT32 SrcSize);
 FREERDP_LOCAL BOOL ohos_avcodec_init_primitives(H264_CONTEXT_OHOS_AVCODEC* sys);
 FREERDP_LOCAL void ohos_avcodec_uninit(H264_CONTEXT* h264);
 FREERDP_LOCAL BOOL ohos_avcodec_init(H264_CONTEXT* h264);

@@ -46,7 +46,6 @@ if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
   find_library(OHOS_NATIVE_BUFFER_LIBRARY native_buffer REQUIRED)
   set(FREERDP_OHOS_PUBLIC_HEADERS
       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_audio.h
-      ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_avc420_route.h
       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_certificate.h
       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_clipboard.h
       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_display.h
@@ -62,7 +61,6 @@ if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_session_options.h)
   list(APPEND SRCS
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_certificate.c
-       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_avc420_route.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_display.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_graphics.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_ime.c
@@ -70,7 +68,6 @@ if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_keyboard.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_location.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_pointer.c
-       ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx_avc420.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx_avc444_policy.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx_bridge.c
        ${CMAKE_CURRENT_SOURCE_DIR}/../OHOS/ohos_rdpgfx_caps.c

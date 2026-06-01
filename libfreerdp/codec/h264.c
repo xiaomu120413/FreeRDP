@@ -159,9 +159,6 @@ INT32 avc420_decompress(H264_CONTEXT* h264, const BYTE* pSrcData, UINT32 SrcSize
 	if (status < 0)
 		return status;
 
-	if (h264->surfaceRendered)
-		return 1;
-
 	pYUVData[0] = h264->pYUVData[0];
 	pYUVData[1] = h264->pYUVData[1];
 	pYUVData[2] = h264->pYUVData[2];
@@ -738,14 +735,11 @@ static BOOL h264_context_init(H264_CONTEXT* h264)
 		if (subsystem == &g_Subsystem_OHOS_AVCodec)
 		{
 			const BOOL ohosEncoderAllowed = h264->Compressor && h264->hwAccel;
-			const BOOL ohosDecoderAllowed = !h264->Compressor && h264->ohosSurfaceModeAllowed;
+			const BOOL ohosDecoderAllowed =
+			    !h264->Compressor && h264->ohosAvcodecBufferModeAllowed;
 
 			if (h264->ohosAvcodecRuntimeDisabled || (!ohosEncoderAllowed && !ohosDecoderAllowed))
 				continue;
-		}
-		else if (h264->ohosSurfaceModeAllowed)
-		{
-			continue;
 		}
 #endif
 
@@ -756,8 +750,6 @@ static BOOL h264_context_init(H264_CONTEXT* h264)
 		}
 
 #ifdef WITH_OHOS_AVCODEC
-		if (h264->ohosSurfaceModeAllowed && (subsystem == &g_Subsystem_OHOS_AVCodec))
-			return FALSE;
 		if (h264->Compressor && h264->hwAccel && (subsystem == &g_Subsystem_OHOS_AVCodec))
 			h264->hwAccel = FALSE;
 #endif
@@ -782,7 +774,7 @@ BOOL h264_context_reset(H264_CONTEXT* h264, UINT32 width, UINT32 height)
 	return yuv_context_reset(h264->yuv, width, height);
 }
 
-BOOL h264_context_set_ohos_surface_mode_allowed(H264_CONTEXT* h264, BOOL allowed)
+BOOL h264_context_set_ohos_avcodec_buffer_mode_allowed(H264_CONTEXT* h264, BOOL allowed)
 {
 	BOOL changed = FALSE;
 
@@ -791,8 +783,8 @@ BOOL h264_context_set_ohos_surface_mode_allowed(H264_CONTEXT* h264, BOOL allowed
 	if (allowed && h264->ohosAvcodecRuntimeDisabled)
 		return FALSE;
 
-	changed = h264->ohosSurfaceModeAllowed != allowed;
-	h264->ohosSurfaceModeAllowed = allowed;
+	changed = h264->ohosAvcodecBufferModeAllowed != allowed;
+	h264->ohosAvcodecBufferModeAllowed = allowed;
 	return changed;
 }
 
@@ -802,8 +794,7 @@ BOOL h264_context_fallback_ohos_avcodec_to_software(H264_CONTEXT* h264)
 		return FALSE;
 
 	h264->ohosAvcodecRuntimeDisabled = TRUE;
-	h264->ohosSurfaceModeAllowed = FALSE;
-	h264->surfaceRendered = FALSE;
+	h264->ohosAvcodecBufferModeAllowed = FALSE;
 
 	if (h264->subsystem && h264->subsystem->Uninit)
 		h264->subsystem->Uninit(h264);

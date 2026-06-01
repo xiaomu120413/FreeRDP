@@ -57,8 +57,6 @@ struct freerdp_ohos_rdpgfx_bridge
 	BOOL requested;
 	BOOL h264Requested;
 	BOOL gdiAttached;
-	BOOL avc420SurfaceMode;
-	BOOL avc420SurfaceActive;
 	BOOL avc444GpuCompositor;
 	UINT32 surfaceTargetWidth;
 	UINT32 surfaceTargetHeight;
@@ -67,7 +65,6 @@ struct freerdp_ohos_rdpgfx_bridge
 	RdpgfxClientContext* gfx;
 	FREERDP_OHOS_RDPGFX_HOOKS hooks;
 	FREERDP_OHOS_RDPGFX_LOG_CALLBACK log;
-	FREERDP_OHOS_RDPGFX_AVC420_SURFACE_CALLBACK avc420SurfaceCommand;
 	FREERDP_OHOS_RDPGFX_AVC444_SURFACE_CALLBACK avc444SurfaceCommand;
 	FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK avc444EndFrame;
 	FREERDP_OHOS_RDPGFX_AVC444_OUTPUT_STATE_CALLBACK avc444OutputState;
@@ -88,8 +85,6 @@ struct freerdp_ohos_rdpgfx_bridge
 	UINT64 codecAvc444;
 	UINT64 codecAvc444v2;
 	UINT64 codecUnknown;
-	UINT64 avc420SurfaceSubrectSkips;
-	UINT64 avc420SurfaceNoDirect;
 	UINT64 avc444GpuCandidates;
 	UINT64 avc444GpuDisabled;
 	UINT64 avc444GpuGdiPreserved;
@@ -160,12 +155,6 @@ void ohos_rdpgfx_record_surface_command(freerdpOhosRdpgfxBridge* bridge,
                                         const RDPGFX_SURFACE_COMMAND* command);
 UINT ohos_rdpgfx_surface_command(RdpgfxClientContext* context,
                                  const RDPGFX_SURFACE_COMMAND* command);
-
-BOOL ohos_rdpgfx_should_attempt_avc420_surface(
-    freerdpOhosRdpgfxBridge* bridge, const RDPGFX_SURFACE_COMMAND* command,
-    FREERDP_OHOS_RDPGFX_AVC420_SURFACE_CALLBACK* callback, void** userData, UINT64* skipCount);
-void ohos_rdpgfx_mark_avc420_surface_result(freerdpOhosRdpgfxBridge* bridge,
-                                            const RDPGFX_SURFACE_COMMAND* command, BOOL activated);
 
 BOOL ohos_rdpgfx_record_avc444_gpu_candidate(freerdpOhosRdpgfxBridge* bridge,
                                              RdpgfxClientContext* context,

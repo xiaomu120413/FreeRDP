@@ -61,7 +61,6 @@ const char* freerdp_ohos_rdpgfx_bridge_get_diagnostics(freerdpOhosRdpgfxBridge* 
 	    ",planar:%" PRIu64 ",avc420:%" PRIu64 ",avc444:%" PRIu64 ",avc444v2:%" PRIu64
 	    ",alpha:%" PRIu64 ",unknown:%" PRIu64 " lastCodec=%s(%" PRIu32 ") lastSurface=%" PRIu32
 	    " lastSize=%" PRIu32 "x%" PRIu32 " frame=open:%s,id:%" PRIu32
-	    " avc420Surface=%s target=%" PRIu32 "x%" PRIu32 " skips=%" PRIu64 " noDirect=%" PRIu64
 	    " avc444Gpu=compositor:%s,suppressGdi:per-command"
 	    ",candidates:%" PRIu64 ",disabled:%" PRIu64 ",frameMismatch:%" PRIu64
 	    ",gdiPreserved:%" PRIu64 ",callbacks:%" PRIu64 ",callbackReady:%" PRIu64
@@ -81,9 +80,7 @@ const char* freerdp_ohos_rdpgfx_bridge_get_diagnostics(freerdpOhosRdpgfxBridge* 
 	    freerdp_ohos_rdpgfx_codec_name(bridge->lastCodecId), bridge->lastCodecId,
 	    bridge->lastSurfaceId, bridge->lastCommandWidth, bridge->lastCommandHeight,
 	    bridge->frameOpen ? "yes" : "no", bridge->activeFrameId,
-	    bridge->avc420SurfaceActive ? "active" : "inactive", bridge->surfaceTargetWidth,
-	    bridge->surfaceTargetHeight, bridge->avc420SurfaceSubrectSkips,
-	    bridge->avc420SurfaceNoDirect, bridge->avc444GpuCompositor ? "on" : "off",
+	    bridge->avc444GpuCompositor ? "on" : "off",
 	    bridge->avc444GpuCandidates, bridge->avc444GpuDisabled, bridge->avc444GpuFrameMismatchSkips,
 	    bridge->avc444GpuGdiPreserved, bridge->avc444GpuCallbacks, bridge->avc444GpuCallbackReady,
 	    bridge->avc444GpuOutputActive ? "active" : "gdi", bridge->avc444GpuOutputActivations,

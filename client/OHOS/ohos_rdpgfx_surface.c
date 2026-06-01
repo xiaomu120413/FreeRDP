@@ -111,31 +111,6 @@ UINT ohos_rdpgfx_surface_command(RdpgfxClientContext* context,
 		    ohos_rdpgfx_record_avc444_gpu_candidate(bridge, context, command, &avc444Status);
 		if (avc444Consumed)
 			return avc444Status;
-
-		FREERDP_OHOS_RDPGFX_AVC420_SURFACE_CALLBACK callback = NULL;
-		void* userData = NULL;
-		UINT64 skipCount = 0;
-		if (ohos_rdpgfx_should_attempt_avc420_surface(bridge, command, &callback, &userData,
-		                                              &skipCount))
-		{
-			FREERDP_OHOS_RDPGFX_SURFACE_COMMAND_INFO info = { 0 };
-			info.codecId = command->codecId;
-			info.surfaceId = command->surfaceId;
-			info.left = command->left;
-			info.top = command->top;
-			info.width = command->width;
-			info.height = command->height;
-			ohos_rdpgfx_mark_avc420_surface_result(bridge, command, callback(&info, userData));
-		}
-		else if (skipCount > 0 && ohos_rdpgfx_should_log_counter(skipCount))
-		{
-			ohos_rdpgfx_log(bridge,
-			                "AVC420 surface output activation skipped: command is a sub-rectangle "
-			                "surface update; command=%" PRIu32 "x%" PRIu32 " at %" PRIu32
-			                ",%" PRIu32 " count=%" PRIu64,
-			                command->width, command->height, command->left, command->top,
-			                skipCount);
-		}
 	}
 
 	if (bridge)

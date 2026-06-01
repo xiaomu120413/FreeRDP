@@ -702,8 +702,7 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 	static UINT64 avc420CommandCount = 0;
 	UINT64 avc420Command = 0;
 	BOOL fullSurfaceUpdate = FALSE;
-	BOOL allowOhosSurfaceMode = FALSE;
-	BOOL ohosSurfaceAvailable = FALSE;
+	BOOL allowOhosBufferMode = FALSE;
 	WINPR_ASSERT(gdi);
 	WINPR_ASSERT(context);
 	WINPR_ASSERT(cmd);
@@ -719,12 +718,8 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 	}
 
 	fullSurfaceUpdate = gdi_SurfaceCommand_IsFullSurfaceUpdate(surface, cmd);
-	allowOhosSurfaceMode = fullSurfaceUpdate;
 #if defined(WITH_OHOS_AVCODEC)
-	ohosSurfaceAvailable =
-	    h264_context_ohos_output_surface_available(surface->width, surface->height);
-	allowOhosSurfaceMode =
-	    allowOhosSurfaceMode && ohosSurfaceAvailable;
+	allowOhosBufferMode = TRUE;
 #endif
 
 	if (!surface->h264)
@@ -737,14 +732,16 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 			return ERROR_NOT_ENOUGH_MEMORY;
 		}
 
-		h264_context_set_ohos_surface_mode_allowed(surface->h264, allowOhosSurfaceMode);
+		h264_context_set_ohos_avcodec_buffer_mode_allowed(surface->h264, allowOhosBufferMode);
 		if (!h264_context_reset(surface->h264, surface->width, surface->height))
 			return ERROR_INTERNAL_ERROR;
 	}
 
 	if (!surface->h264)
 		return ERROR_NOT_SUPPORTED;
-	if (h264_context_set_ohos_surface_mode_allowed(surface->h264, allowOhosSurfaceMode))
+	const BOOL bufferModeChanged =
+	    h264_context_set_ohos_avcodec_buffer_mode_allowed(surface->h264, allowOhosBufferMode);
+	if (bufferModeChanged)
 	{
 		if (!h264_context_reset(surface->h264, surface->width, surface->height))
 			return ERROR_INTERNAL_ERROR;
@@ -769,12 +766,12 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 		          "RDPGFX AVC420 decode enter command=%" PRIu64
 		          " surface=%" PRIu32 " rect=%" PRIu32 ",%" PRIu32 " %" PRIu32 "x%" PRIu32
 		          " surfaceSize=%" PRIu32 "x%" PRIu32 " stream=%" PRIu32
-		          " regions=%" PRIu32 " fullSurface=%d directSurface=%d"
-		          " ohosSurface=%d allowOhosSurface=%d subsystem=%s runtimeDisabled=%d",
+		          " regions=%" PRIu32 " fullSurface=%d"
+		          " allowOhosBuffer=%d"
+		          " subsystem=%s runtimeDisabled=%d",
 		          avc420Command, cmd->surfaceId, cmd->left, cmd->top, cmd->width, cmd->height,
 		          surface->width, surface->height, bs->length, meta->numRegionRects,
-		          fullSurfaceUpdate ? 1 : 0, fullSurfaceUpdate ? 1 : 0,
-		          ohosSurfaceAvailable ? 1 : 0, allowOhosSurfaceMode ? 1 : 0, subsystem,
+		          fullSurfaceUpdate ? 1 : 0, allowOhosBufferMode ? 1 : 0, subsystem,
 		          surface->h264 ? (surface->h264->ohosAvcodecRuntimeDisabled ? 1 : 0) : -1);
 	}
 	rc = avc420_decompress(surface->h264, bs->data, bs->length, surface->data, surface->format,
@@ -790,6 +787,16 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 		                       meta->regionRects, meta->numRegionRects);
 	}
 
+	if (rc == H264_OHOS_AVCODEC_NO_OUTPUT_RC)
+	{
+		if ((avc420Command <= 5) || ((avc420Command % 120) == 0))
+			WLog_INFO(TAG,
+			          "RDPGFX AVC420 hardware decode has no output yet; skipping invalidation "
+			          "command=%" PRIu64,
+			          avc420Command);
+		return CHANNEL_RC_OK;
+	}
+
 	if (rc < 0)
 	{
 		WLog_WARN(TAG, "avc420_decompress failure: %" PRId32 ", ignoring update.", rc);
@@ -803,22 +810,8 @@ static UINT gdi_SurfaceCommand_AVC420(rdpGdi* gdi, RdpgfxClientContext* context,
 		                            : "none";
 		WLog_INFO(TAG,
 		          "RDPGFX AVC420 decode result command=%" PRIu64
-		          " rc=%" PRId32 " surfaceRendered=%d subsystem=%s",
-		          avc420Command, rc,
-		          (surface->h264 && surface->h264->surfaceRendered) ? 1 : 0, subsystem);
-	}
-
-	if (surface->h264->surfaceRendered)
-	{
-		static BOOL surfaceBypassLogged = FALSE;
-
-		if (!surfaceBypassLogged)
-		{
-			WLog_INFO(TAG,
-			          "OHOS AVCodec AVC420 surface rendered; bypassing GDI surface invalidation");
-			surfaceBypassLogged = TRUE;
-		}
-		return CHANNEL_RC_OK;
+		          " rc=%" PRId32 " subsystem=%s",
+		          avc420Command, rc, subsystem);
 	}
 
 	for (UINT32 i = 0; i < meta->numRegionRects; i++)
@@ -897,18 +890,12 @@ static UINT gdi_SurfaceCommand_AVC444(rdpGdi* gdi, RdpgfxClientContext* context,
 			return ERROR_NOT_ENOUGH_MEMORY;
 		}
 
-		h264_context_set_ohos_surface_mode_allowed(surface->h264, FALSE);
 		if (!h264_context_reset(surface->h264, surface->width, surface->height))
 			return ERROR_INTERNAL_ERROR;
 	}
 
 	if (!surface->h264)
 		return ERROR_NOT_SUPPORTED;
-	if (h264_context_set_ohos_surface_mode_allowed(surface->h264, FALSE))
-	{
-		if (!h264_context_reset(surface->h264, surface->width, surface->height))
-			return ERROR_INTERNAL_ERROR;
-	}
 
 	rc = avc444_decompress(surface->h264, bs->LC, meta1->regionRects, meta1->numRegionRects,
 	                       avc1->data, avc1->length, meta2->regionRects, meta2->numRegionRects,

@@ -169,42 +169,6 @@ UINT ohos_rdpgfx_caps_confirm(RdpgfxClientContext* context,
 		{
 			const RDPGFX_CAPSET* capsSet = capsConfirm->capsSet;
 			ohos_rdpgfx_record_caps_values(bridge, capsSet->version, capsSet->flags, "callback");
-			if (bridge->avc420SurfaceMode)
-			{
-				if (freerdp_ohos_rdpgfx_caps_confirm_is_avc420(capsSet->version, capsSet->flags))
-				{
-					ohos_rdpgfx_log(bridge,
-					                "RDPGFX negotiated AVC420 surface mode: version=0x%08" PRIX32
-					                " flags=0x%08" PRIX32
-					                "; GDI remains active until the first AVC420 surface command",
-					                capsSet->version, capsSet->flags);
-				}
-				else if (freerdp_ohos_rdpgfx_caps_confirm_is_avc444(capsSet->version,
-				                                                    capsSet->flags))
-				{
-					BOOL avc444GpuCompositor = FALSE;
-					EnterCriticalSection(&bridge->lock);
-					avc444GpuCompositor = bridge->avc444GpuCompositor;
-					LeaveCriticalSection(&bridge->lock);
-					ohos_rdpgfx_log(
-					    bridge,
-					    "RDPGFX negotiated AVC444 mode: version=0x%08" PRIX32 " flags=0x%08" PRIX32
-					    "; AVC420 surface route remains disabled for AVC444"
-					    "; avc444GpuCompositor=%s gdiSuppression=per-command",
-					    capsSet->version, capsSet->flags, avc444GpuCompositor ? "on" : "off");
-				}
-				else
-				{
-					EnterCriticalSection(&bridge->lock);
-					bridge->avc420SurfaceMode = FALSE;
-					bridge->avc420SurfaceActive = FALSE;
-					LeaveCriticalSection(&bridge->lock);
-					ohos_rdpgfx_log(bridge,
-					                "RDPGFX selected non-AVC graphics mode: version=0x%08" PRIX32
-					                " flags=0x%08" PRIX32,
-					                capsSet->version, capsSet->flags);
-				}
-			}
 		}
 		else
 		{

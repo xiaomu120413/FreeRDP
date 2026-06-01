@@ -23,8 +23,8 @@ Current contents:
     alignment helpers.
   - `ohos_ime.h`, `ohos_keyboard.h`, `ohos_pointer.h`, `ohos_input_queue.h`:
     input translation and queued dispatch helpers.
-  - `ohos_rdpgfx.h`, `ohos_avc420_route.h`: RDPGFX bridge, AVC444 surface
-    callbacks and AVC420 direct surface route helpers.
+  - `ohos_rdpgfx.h`: RDPGFX bridge, AVC444 surface callbacks and codec
+    diagnostics.
   - `ohos_certificate.h`: certificate policy parsing and callback registration.
 - Internal headers:
   - `ohos_session_private.h` and `ohos_rdpgfx_internal.h` are implementation
@@ -51,15 +51,13 @@ Current contents:
   lifecycle wiring.
 - `ohos_graphics.*`: owns HarmonyOS graphics-mode parsing, fallback policy and
   H.264 desktop alignment helpers.
-- `ohos_avc420_route.*`: owns HarmonyOS render-target state, AVC420 direct
-  Surface route state and graphics diagnostics. AVC444 is intentionally routed
-  through FreeRDP native `avc444_decompress()` into the GDI/RGB surface before
-  the existing OHOS display path presents it.
-- `ohos_rdpgfx.*`: owns the HarmonyOS RDPGFX callback bridge, AVC420 surface
-  decisions, AVC444 negotiation diagnostics and codec diagnostics. The AVC444
+- `ohos_rdpgfx.*`: owns the HarmonyOS RDPGFX callback bridge, AVC444 negotiation
+  diagnostics and codec diagnostics. AVC420 hardware decode stays in AVCodec
+  buffer mode so RDPGFX dirty-region composition continues through the normal
+  GDI/OHOS display path. The AVC444
   GPU compositor is the default path for `rdpgfx-h264`; it suppresses native GDI
   per command only after the HAP callback has consumed that command. The HAP
-  supplies only NativeWindow/AVCodec surface callbacks.
+  supplies only NativeWindow callbacks.
 - `ohos_session_config.*`: owns enhanced RDP settings and standard channel
   request parameters for cliprdr, display-control, rdpsnd/OHAudio playback and
   audin/OHAudio capture. It also registers the fixed OHOS Download directory

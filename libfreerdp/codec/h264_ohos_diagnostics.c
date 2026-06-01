@@ -14,34 +14,22 @@ FREERDP_API const char* freerdp_ohos_avcodec_get_diagnostics(void)
 {
 	static char text[768];
 	OHOS_AVCODEC_DIAGNOSTICS stats = { 0 };
-	BOOL surfaceEnabled = FALSE;
-	UINT32 surfaceWidth = 0;
-	UINT32 surfaceHeight = 0;
-	UINT64 configSurfaceGeneration = 0;
 
 	pthread_mutex_lock(&g_ohos_avcodec_stats_lock);
 	stats = g_ohos_avcodec_stats;
 	pthread_mutex_unlock(&g_ohos_avcodec_stats_lock);
 
-	ohos_avcodec_get_surface_config_for_diagnostics(&surfaceEnabled, &surfaceWidth,
-	                                                &surfaceHeight,
-	                                                &configSurfaceGeneration);
-
 	(void)snprintf(text, sizeof(text),
-	               "ohos avcodec: attempts=%" PRIu64 " active=surface:%" PRIu64
-	               " calls=%" PRIu64 " rendered=%" PRIu64
+	               "ohos avcodec: attempts=%" PRIu64 " active=buffer:%" PRIu64
+	               " calls=%" PRIu64 " decoded=%" PRIu64
 	               " noOutput=%" PRIu64 " failed=%" PRIu64 " inputTimeout=%" PRIu64
 	               " dropped=%" PRIu64 " fallbacks=%" PRIu64
-	               " surfaceRefresh=%" PRIu64 " surfaceInvalid=%" PRIu64
-	               " surfaceGeneration=config:%" PRIu64 ",decoder:%" PRIu64
-	               " last=%ux%u asyncError=%d"
-	               " outputSurface=%s:%ux%u reason=%s",
-	               stats.decoderAttempts, stats.surfaceDecoderActive, stats.decodeCalls,
+	               " decoderRefresh=%" PRIu64
+	               " last=%ux%u asyncError=%d reason=%s",
+	               stats.decoderAttempts, stats.decoderActive, stats.decodeCalls,
 	               stats.decodedFrames, stats.noOutputFrames, stats.failedFrames,
 	               stats.inputWaitTimeouts, stats.droppedOutputFrames, stats.fallbackRequests,
-	               stats.surfaceRefreshes, stats.surfaceInvalidations, configSurfaceGeneration,
-	               stats.lastSurfaceGeneration, stats.lastWidth, stats.lastHeight,
-	               stats.lastAsyncError, surfaceEnabled ? "on" : "off", surfaceWidth, surfaceHeight,
+	               stats.decoderRefreshes, stats.lastWidth, stats.lastHeight, stats.lastAsyncError,
 	               stats.lastFallbackReason[0] == '\0' ? "none" : stats.lastFallbackReason);
 	return text;
 }
@@ -59,10 +47,9 @@ FREERDP_LOCAL void ohos_avcodec_record_decoder_active(const H264_CONTEXT_OHOS_AV
 		return;
 
 	pthread_mutex_lock(&g_ohos_avcodec_stats_lock);
-	g_ohos_avcodec_stats.surfaceDecoderActive++;
+	g_ohos_avcodec_stats.decoderActive++;
 	g_ohos_avcodec_stats.lastWidth = sys->width;
 	g_ohos_avcodec_stats.lastHeight = sys->height;
-	g_ohos_avcodec_stats.lastSurfaceGeneration = sys->surfaceGeneration;
 	pthread_mutex_unlock(&g_ohos_avcodec_stats_lock);
 }
 
@@ -78,11 +65,9 @@ FREERDP_LOCAL void ohos_avcodec_record_progress(const H264_CONTEXT_OHOS_AVCODEC*
 	g_ohos_avcodec_stats.failedFrames = sys->failedFrames;
 	g_ohos_avcodec_stats.inputWaitTimeouts = sys->inputWaitTimeouts;
 	g_ohos_avcodec_stats.droppedOutputFrames = sys->droppedOutputFrames;
-	g_ohos_avcodec_stats.surfaceRefreshes = sys->surfaceRefreshes;
-	g_ohos_avcodec_stats.surfaceInvalidations = sys->surfaceInvalidations;
+	g_ohos_avcodec_stats.decoderRefreshes = sys->decoderRefreshes;
 	g_ohos_avcodec_stats.lastWidth = sys->width;
 	g_ohos_avcodec_stats.lastHeight = sys->height;
-	g_ohos_avcodec_stats.lastSurfaceGeneration = sys->surfaceGeneration;
 	g_ohos_avcodec_stats.lastAsyncError = sys->asyncError;
 	pthread_mutex_unlock(&g_ohos_avcodec_stats_lock);
 }

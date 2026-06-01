@@ -31,6 +31,7 @@ extern "C"
 #endif
 
 #define H264_OHOS_AVCODEC_FALLBACK_RC (-3300)
+#define H264_OHOS_AVCODEC_NO_OUTPUT_RC (-3301)
 
 	typedef BOOL (*pfnH264SubsystemInit)(H264_CONTEXT* h264);
 	typedef void (*pfnH264SubsystemUninit)(H264_CONTEXT* h264);
@@ -68,9 +69,8 @@ extern "C"
 		UINT32 UsageType;
 		UINT32 hwAccel;
 		UINT32 NumberOfThreads;
-		BOOL ohosSurfaceModeAllowed;
+		BOOL ohosAvcodecBufferModeAllowed;
 		BOOL ohosAvcodecRuntimeDisabled;
-		BOOL surfaceRendered;
 
 		UINT32 iStride[3];
 		BYTE* pOldYUVData[3];
@@ -98,14 +98,10 @@ extern "C"
 	FREERDP_LOCAL BOOL avc420_ensure_buffer(H264_CONTEXT* h264, UINT32 stride, UINT32 width,
 	                                        UINT32 height);
 
-	FREERDP_LOCAL BOOL h264_context_set_ohos_surface_mode_allowed(H264_CONTEXT* h264,
-	                                                              BOOL allowed);
+	FREERDP_LOCAL BOOL h264_context_set_ohos_avcodec_buffer_mode_allowed(H264_CONTEXT* h264,
+	                                                                     BOOL allowed);
 
 	FREERDP_LOCAL BOOL h264_context_fallback_ohos_avcodec_to_software(H264_CONTEXT* h264);
-
-#ifdef WITH_OHOS_AVCODEC
-	FREERDP_LOCAL BOOL h264_context_ohos_output_surface_available(UINT32 width, UINT32 height);
-#endif
 
 #ifdef WITH_MEDIACODEC
 	extern const H264_CONTEXT_SUBSYSTEM g_Subsystem_mediacodec;

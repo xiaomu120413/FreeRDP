@@ -188,10 +188,11 @@ if(WITH_OHOS_AVCODEC)
        h264_ohos_callbacks.c
        h264_ohos_bitstream.c
        h264_ohos_decoder.c
+       h264_ohos_decoder_buffer.c
        h264_ohos_encoder.c
        h264_ohos_encoder_config.c
        h264_ohos_diagnostics.c
-       h264_ohos_surface_state.c)
+       h264_ohos_fallback_state.c)
 
   find_library(OHOS_AVCODEC_VDEC_LIBRARY native_media_vdec REQUIRED)
   find_library(OHOS_AVCODEC_VENC_LIBRARY native_media_venc REQUIRED)
