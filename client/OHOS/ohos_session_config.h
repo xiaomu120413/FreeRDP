@@ -30,6 +30,7 @@ typedef struct
 	UINT32 audioPlaybackLatencyMs;
 	UINT32 audioCaptureRate;
 	UINT32 audioCaptureChannels;
+	BOOL geometry;
 } FREERDP_OHOS_SESSION_CONFIG;
 
 typedef struct

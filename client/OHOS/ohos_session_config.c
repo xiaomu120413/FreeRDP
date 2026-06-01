@@ -17,6 +17,7 @@
 
 #include <freerdp/channels/cliprdr.h>
 #include <freerdp/channels/disp.h>
+#include <freerdp/channels/geometry.h>
 #include <freerdp/channels/location.h>
 #include <freerdp/channels/rdpgfx.h>
 #include <freerdp/client/channels.h>
@@ -192,6 +193,7 @@ FREERDP_OHOS_SESSION_CONFIG freerdp_ohos_session_config_default(void)
 	FREERDP_OHOS_SESSION_CONFIG config = { 0 };
 	config.clipboard = TRUE;
 	config.displayControl = TRUE;
+	config.geometry = TRUE;
 	config.location = FALSE;
 	config.drive = TRUE;
 	config.printer = TRUE;
@@ -378,10 +380,10 @@ BOOL freerdp_ohos_session_apply_settings(rdpSettings* settings,
 
 	ohos_session_format_message(
 	    message, messageSize,
-	    "OHOS FreeRDP settings applied: cliprdr=%d disp=%d rdpsnd=%d audin=%d gfx=%d "
+	    "OHOS FreeRDP settings applied: cliprdr=%d disp=%d geometry=%d rdpsnd=%d audin=%d gfx=%d "
 	    "h264=%d avc420=%d avc444=%d",
-	    config->clipboard, config->displayControl, config->audioPlayback, config->audioCapture,
-	    config->graphicsPipeline, h264, avc420, avc444);
+	    config->clipboard, config->displayControl, config->geometry, config->audioPlayback,
+	    config->audioCapture, config->graphicsPipeline, h264, avc420, avc444);
 	return TRUE;
 }
 
@@ -410,6 +412,14 @@ BOOL freerdp_ohos_session_add_standard_channels(rdpSettings* settings,
 	{
 		const char* params[] = { DISP_CHANNEL_NAME };
 		if (!ohos_session_add_dynamic_channel(settings, ARRAYSIZE(params), params, "disp",
+		                                      message, messageSize))
+			return FALSE;
+	}
+
+	if (config->geometry)
+	{
+		const char* params[] = { GEOMETRY_CHANNEL_NAME };
+		if (!ohos_session_add_dynamic_channel(settings, ARRAYSIZE(params), params, "geometry",
 		                                      message, messageSize))
 			return FALSE;
 	}
@@ -486,10 +496,11 @@ BOOL freerdp_ohos_session_add_standard_channels(rdpSettings* settings,
 
 	ohos_session_format_message(
 	    message, messageSize,
-	    "OHOS FreeRDP channels added: cliprdr=%d disp=%d location=%d rdpgfx=%d drive=%d "
+	    "OHOS FreeRDP channels added: cliprdr=%d disp=%d geometry=%d location=%d rdpgfx=%d drive=%d "
 	    "printer=%d rdpsnd=%d audin=%d audinCapture=%s%s%s",
-	    config->clipboard, config->displayControl, config->location, config->graphicsPipeline,
-	    driveAdded, config->printer, config->audioPlayback, config->audioCapture,
+	    config->clipboard, config->displayControl, config->geometry, config->location,
+	    config->graphicsPipeline, driveAdded, config->printer, config->audioPlayback,
+	    config->audioCapture,
 	    (config->audioCaptureRate == 0 && config->audioCaptureChannels == 0) ? "negotiated"
 	                                                                         : "fixed",
 	    (!driveAdded && driveDetail[0] != '\0') ? " " : "",
