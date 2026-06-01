@@ -25,6 +25,8 @@ typedef struct
 	BOOL printer;
 	BOOL audioPlayback;
 	BOOL audioCapture;
+	BOOL camera;
+	BOOL echo;
 	UINT32 audioPlaybackRate;
 	UINT32 audioPlaybackChannels;
 	UINT32 audioPlaybackLatencyMs;

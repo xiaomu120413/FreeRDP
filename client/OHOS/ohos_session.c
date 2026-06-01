@@ -528,6 +528,19 @@ BOOL freerdp_ohos_session_connect(freerdpOhosSession* session,
 	if (!ohos_session_should_continue(session))
 		ohos_session_set_diagnostics(session, "FreeRDP session cancelled");
 
+	if (ohos_session_should_continue(session) && session->connected && session->instance &&
+	    session->instance->context && freerdp_shall_disconnect_context(session->instance->context))
+	{
+		lastError = freerdp_get_last_error(session->instance->context);
+		if (lastError != FREERDP_ERROR_SUCCESS)
+			ohos_session_set_last_error(session, "FreeRDP session disconnected", lastError);
+		else if (session->diagnostics[0] == '\0' ||
+		         strncmp(session->diagnostics, "display-control resize pending", 30) == 0)
+		{
+			ohos_session_set_diagnostics(session, "FreeRDP session disconnected");
+		}
+	}
+
 	if (ohos_session_should_continue(session) && session->connected &&
 	    session->diagnostics[0] != '\0' &&
 	    strcmp(session->diagnostics, "FreeRDP session connected") == 0)

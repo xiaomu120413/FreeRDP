@@ -17,8 +17,10 @@
 
 #include <freerdp/channels/cliprdr.h>
 #include <freerdp/channels/disp.h>
+#include <freerdp/channels/echo.h>
 #include <freerdp/channels/geometry.h>
 #include <freerdp/channels/location.h>
+#include <freerdp/channels/rdpecam.h>
 #include <freerdp/channels/rdpgfx.h>
 #include <freerdp/client/channels.h>
 #include <freerdp/client/cmdline.h>
@@ -194,6 +196,8 @@ FREERDP_OHOS_SESSION_CONFIG freerdp_ohos_session_config_default(void)
 	config.clipboard = TRUE;
 	config.displayControl = TRUE;
 	config.geometry = TRUE;
+	config.camera = TRUE;
+	config.echo = TRUE;
 	config.location = FALSE;
 	config.drive = TRUE;
 	config.printer = TRUE;
@@ -325,6 +329,8 @@ BOOL freerdp_ohos_session_apply_settings(rdpSettings* settings,
 	const BOOL avc444 = h264;
 	if (!ohos_session_set_bool(settings, FreeRDP_SupportDynamicChannels, TRUE,
 	                           "SupportDynamicChannels", message, messageSize) ||
+	    !ohos_session_set_bool(settings, FreeRDP_SupportEchoChannel, config->echo,
+	                           "SupportEchoChannel", message, messageSize) ||
 	    !ohos_session_set_bool(settings, FreeRDP_SupportDisplayControl, config->displayControl,
 	                           "SupportDisplayControl", message, messageSize) ||
 	    !ohos_session_set_bool(settings, FreeRDP_DynamicResolutionUpdate, config->displayControl,
@@ -380,10 +386,11 @@ BOOL freerdp_ohos_session_apply_settings(rdpSettings* settings,
 
 	ohos_session_format_message(
 	    message, messageSize,
-	    "OHOS FreeRDP settings applied: cliprdr=%d disp=%d geometry=%d rdpsnd=%d audin=%d gfx=%d "
-	    "h264=%d avc420=%d avc444=%d",
-	    config->clipboard, config->displayControl, config->geometry, config->audioPlayback,
-	    config->audioCapture, config->graphicsPipeline, h264, avc420, avc444);
+	    "OHOS FreeRDP settings applied: cliprdr=%d disp=%d geometry=%d echo=%d rdpecam=%d rdpsnd=%d "
+	    "audin=%d gfx=%d h264=%d avc420=%d avc444=%d",
+	    config->clipboard, config->displayControl, config->geometry, config->echo, config->camera,
+	    config->audioPlayback, config->audioCapture, config->graphicsPipeline, h264, avc420,
+	    avc444);
 	return TRUE;
 }
 
@@ -420,6 +427,22 @@ BOOL freerdp_ohos_session_add_standard_channels(rdpSettings* settings,
 	{
 		const char* params[] = { GEOMETRY_CHANNEL_NAME };
 		if (!ohos_session_add_dynamic_channel(settings, ARRAYSIZE(params), params, "geometry",
+		                                      message, messageSize))
+			return FALSE;
+	}
+
+	if (config->echo)
+	{
+		const char* params[] = { ECHO_CHANNEL_NAME };
+		if (!ohos_session_add_dynamic_channel(settings, ARRAYSIZE(params), params, "echo",
+		                                      message, messageSize))
+			return FALSE;
+	}
+
+	if (config->camera)
+	{
+		const char* params[] = { RDPECAM_DVC_CHANNEL_NAME };
+		if (!ohos_session_add_dynamic_channel(settings, ARRAYSIZE(params), params, "rdpecam",
 		                                      message, messageSize))
 			return FALSE;
 	}
@@ -496,10 +519,10 @@ BOOL freerdp_ohos_session_add_standard_channels(rdpSettings* settings,
 
 	ohos_session_format_message(
 	    message, messageSize,
-	    "OHOS FreeRDP channels added: cliprdr=%d disp=%d geometry=%d location=%d rdpgfx=%d drive=%d "
-	    "printer=%d rdpsnd=%d audin=%d audinCapture=%s%s%s",
-	    config->clipboard, config->displayControl, config->geometry, config->location,
-	    config->graphicsPipeline, driveAdded, config->printer, config->audioPlayback,
+	    "OHOS FreeRDP channels added: cliprdr=%d disp=%d geometry=%d echo=%d rdpecam=%d location=%d "
+	    "rdpgfx=%d drive=%d printer=%d rdpsnd=%d audin=%d audinCapture=%s%s%s",
+	    config->clipboard, config->displayControl, config->geometry, config->echo, config->camera,
+	    config->location, config->graphicsPipeline, driveAdded, config->printer, config->audioPlayback,
 	    config->audioCapture,
 	    (config->audioCaptureRate == 0 && config->audioCaptureChannels == 0) ? "negotiated"
 	                                                                         : "fixed",

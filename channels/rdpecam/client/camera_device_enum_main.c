@@ -548,6 +548,8 @@ FREERDP_ENTRY_POINT(UINT VCAPITYPE rdpecam_DVCPluginEntry(IDRDYNVC_ENTRY_POINTS*
 	/* TODO: camera redirect only supported for platforms with Video4Linux */
 #if defined(WITH_V4L)
 	ecam->subsystem = "v4l";
+#elif defined(WITH_OHOS_RDPECAM)
+	ecam->subsystem = "ohos";
 #else
 	ecam->subsystem = nullptr;
 #endif

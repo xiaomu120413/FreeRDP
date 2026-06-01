@@ -17,12 +17,18 @@
 
 define_channel_client("rdpecam")
 
-# currently camera redirect client supported for platforms with Video4Linux only
-find_package(V4L)
+if(OHOS OR CMAKE_SYSTEM_NAME STREQUAL "OHOS")
+  set(WITH_OHOS_RDPECAM ON)
+  add_compile_definitions("WITH_OHOS_RDPECAM")
+else()
+  # currently camera redirect client supported for platforms with Video4Linux only
+  find_package(V4L)
+endif()
+
 if(V4L_FOUND)
   set(WITH_V4L ON)
   add_compile_definitions("WITH_V4L")
-else()
+elseif(NOT WITH_OHOS_RDPECAM)
   message(FATAL_ERROR "libv4l-dev required for CHANNEL_RDPECAM_CLIENT")
 endif()
 
@@ -35,4 +41,8 @@ add_channel_client_library(${MODULE_PREFIX} ${MODULE_NAME} ${CHANNEL_NAME} TRUE 
 
 if(V4L_FOUND)
   add_channel_client_subsystem(${MODULE_PREFIX} ${CHANNEL_NAME} "v4l" "")
+endif()
+
+if(WITH_OHOS_RDPECAM)
+  add_channel_client_subsystem(${MODULE_PREFIX} ${CHANNEL_NAME} "ohos" "")
 endif()
