@@ -198,7 +198,7 @@ FREERDP_OHOS_SESSION_CONFIG freerdp_ohos_session_config_default(void)
 	config.geometry = TRUE;
 	config.camera = TRUE;
 	config.echo = TRUE;
-	config.location = TRUE;
+	config.location = FALSE;
 	config.drive = TRUE;
 	config.printer = TRUE;
 	config.audioPlayback = TRUE;
