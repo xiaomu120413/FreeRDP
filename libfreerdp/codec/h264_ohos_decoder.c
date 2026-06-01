@@ -281,6 +281,7 @@ FREERDP_LOCAL void ohos_avcodec_uninit(H264_CONTEXT* h264)
 	if (!sys)
 		return;
 
+	ohos_avcodec_close_encoder(sys);
 	ohos_avcodec_close_decoder(sys);
 
 	if (sys->primitivesReady)
@@ -298,7 +299,7 @@ FREERDP_LOCAL BOOL ohos_avcodec_init(H264_CONTEXT* h264)
 {
 	H264_CONTEXT_OHOS_AVCODEC* sys = NULL;
 
-	if (!h264 || h264->Compressor)
+	if (!h264)
 		return FALSE;
 
 	sys = (H264_CONTEXT_OHOS_AVCODEC*)calloc(1, sizeof(H264_CONTEXT_OHOS_AVCODEC));
@@ -314,6 +315,15 @@ FREERDP_LOCAL BOOL ohos_avcodec_init(H264_CONTEXT* h264)
 
 	h264->pSystemData = sys;
 	h264->numSystemData = 1;
+
+	if (h264->Compressor)
+	{
+		if (ohos_avcodec_open_encoder(h264, sys))
+			return TRUE;
+
+		ohos_avcodec_uninit(h264);
+		return FALSE;
+	}
 
 	if (ohos_avcodec_open_decoder(h264, sys))
 		return TRUE;
@@ -441,20 +451,6 @@ FREERDP_LOCAL int ohos_avcodec_decompress(H264_CONTEXT* WINPR_RESTRICT h264,
 		           sys->decodedFrames, sys->droppedOutputFrames, sys->failedFrames);
 	}
 	return 1;
-}
-
-FREERDP_LOCAL int ohos_avcodec_compress(H264_CONTEXT* WINPR_RESTRICT h264,
-                                 const BYTE** WINPR_RESTRICT ppSrcYuv,
-                                 const UINT32* WINPR_RESTRICT pStride,
-                                 BYTE** WINPR_RESTRICT ppDstData,
-                                 UINT32* WINPR_RESTRICT pDstSize)
-{
-	WINPR_UNUSED(h264);
-	WINPR_UNUSED(ppSrcYuv);
-	WINPR_UNUSED(pStride);
-	WINPR_UNUSED(ppDstData);
-	WINPR_UNUSED(pDstSize);
-	return -1;
 }
 
 const H264_CONTEXT_SUBSYSTEM g_Subsystem_OHOS_AVCodec = {

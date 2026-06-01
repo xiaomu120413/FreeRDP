@@ -737,7 +737,10 @@ static BOOL h264_context_init(H264_CONTEXT* h264)
 #ifdef WITH_OHOS_AVCODEC
 		if (subsystem == &g_Subsystem_OHOS_AVCodec)
 		{
-			if (h264->ohosAvcodecRuntimeDisabled || !h264->ohosSurfaceModeAllowed)
+			const BOOL ohosEncoderAllowed = h264->Compressor && h264->hwAccel;
+			const BOOL ohosDecoderAllowed = !h264->Compressor && h264->ohosSurfaceModeAllowed;
+
+			if (h264->ohosAvcodecRuntimeDisabled || (!ohosEncoderAllowed && !ohosDecoderAllowed))
 				continue;
 		}
 		else if (h264->ohosSurfaceModeAllowed)
@@ -755,6 +758,8 @@ static BOOL h264_context_init(H264_CONTEXT* h264)
 #ifdef WITH_OHOS_AVCODEC
 		if (h264->ohosSurfaceModeAllowed && (subsystem == &g_Subsystem_OHOS_AVCodec))
 			return FALSE;
+		if (h264->Compressor && h264->hwAccel && (subsystem == &g_Subsystem_OHOS_AVCodec))
+			h264->hwAccel = FALSE;
 #endif
 	}
 

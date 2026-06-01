@@ -20,6 +20,7 @@
 #include <freerdp/config.h>
 
 #include <winpr/assert.h>
+#include <winpr/crt.h>
 #include <winpr/wlog.h>
 #include <winpr/stream.h>
 #include <freerdp/log.h>
@@ -35,6 +36,10 @@
 static BOOL freerdp_video_fill_plane_info(wLog* log, BYTE* data[4], int lineSize[4],
                                           FREERDP_VIDEO_FORMAT format, UINT32 width, UINT32 height,
                                           const BYTE* buffer);
+static BOOL freerdp_video_copy_yuv_planes(wLog* log, const BYTE* srcData[4],
+                                          const int srcLineSize[4], BYTE* dstData[3],
+                                          const int dstLineSize[3], FREERDP_VIDEO_FORMAT format,
+                                          UINT32 width, UINT32 height);
 
 #include "image_ffmpeg.h"
 
@@ -58,6 +63,8 @@ struct s_FREERDP_VIDEO_CONTEXT
 
 	H264_CONTEXT* h264;
 	BOOL h264Configured;
+	BOOL h264HwAccelDisabled;
+	BOOL h264DirectYuvCopyLogged;
 	UINT32 h264Framerate;
 	UINT32 h264Bitrate;
 	UINT32 h264UsageType;
@@ -260,6 +267,15 @@ BOOL freerdp_video_context_reconfigure(FREERDP_VIDEO_CONTEXT* context, UINT32 wi
 		}
 	}
 
+	const UINT32 previousHwAccel =
+	    h264_context_get_option(context->h264, H264_CONTEXT_OPTION_HW_ACCEL);
+#if defined(WITH_OHOS_AVCODEC)
+	const UINT32 requestedHwAccel =
+	    (!context->h264HwAccelDisabled && (usageType == H264_CAMERA_VIDEO_REAL_TIME)) ? TRUE : FALSE;
+#else
+	const UINT32 requestedHwAccel = FALSE;
+#endif
+
 	if (!h264_context_set_option(context->h264, H264_CONTEXT_OPTION_USAGETYPE, usageType))
 		goto fail;
 
@@ -276,16 +292,26 @@ BOOL freerdp_video_context_reconfigure(FREERDP_VIDEO_CONTEXT* context, UINT32 wi
 	if (!h264_context_set_option(context->h264, H264_CONTEXT_OPTION_QP, 26))
 		goto fail;
 
-	if (!h264_context_set_option(context->h264, H264_CONTEXT_OPTION_HW_ACCEL, FALSE))
+	if (!h264_context_set_option(context->h264, H264_CONTEXT_OPTION_HW_ACCEL, requestedHwAccel))
 		goto fail;
 
-	if (!context->h264Configured || (context->width != width) || (context->height != height))
+	if (!context->h264Configured || (context->width != width) || (context->height != height) ||
+	    (previousHwAccel != requestedHwAccel))
 	{
 		if (!h264_context_reset(context->h264, width, height))
 		{
 			WLog_Print(context->log, WLOG_ERROR, "h264_context_reset failed");
 			goto fail;
 		}
+#if defined(WITH_OHOS_AVCODEC)
+		if (requestedHwAccel &&
+		    !h264_context_get_option(context->h264, H264_CONTEXT_OPTION_HW_ACCEL))
+		{
+			context->h264HwAccelDisabled = TRUE;
+			WLog_Print(context->log, WLOG_WARN,
+			           "OHOS AVCodec H264 encoder unavailable; using software encoder");
+		}
+#endif
 	}
 
 	context->h264Framerate = framerate;
@@ -433,9 +459,29 @@ BOOL freerdp_video_sample_convert(FREERDP_VIDEO_CONTEXT* context, FREERDP_VIDEO_
 			}
 
 			const BYTE* cSrcPlanes[4] = { srcPlanes[0], srcPlanes[1], srcPlanes[2], srcPlanes[3] };
-			if (!freerdp_video_convert_to_yuv(
-			        context, cSrcPlanes, srcStrides, video_format_to_av(context->log, srcFormat),
-			        yuvData, yuvLineSizes, yuvFormat, context->width, context->height))
+			if (srcFormat == yuvFormat)
+			{
+				if (!freerdp_video_copy_yuv_planes(context->log, cSrcPlanes, srcStrides, yuvData,
+				                                   yuvLineSizes, yuvFormat, context->width,
+				                                   context->height))
+				{
+					WLog_Print(context->log, WLOG_ERROR, "YUV direct copy failed");
+					return FALSE;
+				}
+
+				if (!context->h264DirectYuvCopyLogged)
+				{
+					const BYTE* uv = (yuvFormat == FREERDP_VIDEO_FORMAT_NV12) ? yuvData[1] : NULL;
+					WLog_Print(context->log, WLOG_INFO,
+					           "H264 encoder direct YUV input copy: format=%s y0=%u uv0=%u,%u",
+					           freerdp_video_format_string(yuvFormat), yuvData[0] ? yuvData[0][0] : 0U,
+					           uv ? uv[0] : 0U, uv ? uv[1] : 0U);
+					context->h264DirectYuvCopyLogged = TRUE;
+				}
+			}
+			else if (!freerdp_video_convert_to_yuv(
+			             context, cSrcPlanes, srcStrides, video_format_to_av(context->log, srcFormat),
+			             yuvData, yuvLineSizes, yuvFormat, context->width, context->height))
 			{
 				WLog_Print(context->log, WLOG_ERROR, "YUV conversion failed");
 				return FALSE;
@@ -594,6 +640,46 @@ static BOOL freerdp_video_convert_to_yuv(FREERDP_VIDEO_CONTEXT* context, const B
 	}
 
 	return (result > 0);
+}
+
+static BOOL freerdp_video_copy_plane(const BYTE* src, int srcStride, BYTE* dst, int dstStride,
+                                     UINT32 rows, UINT32 bytesPerRow)
+{
+	if (!src || !dst || (srcStride < (int)bytesPerRow) || (dstStride < (int)bytesPerRow))
+		return FALSE;
+
+	for (UINT32 y = 0; y < rows; y++)
+		CopyMemory(&dst[(size_t)y * (size_t)dstStride], &src[(size_t)y * (size_t)srcStride],
+		           bytesPerRow);
+	return TRUE;
+}
+
+static BOOL freerdp_video_copy_yuv_planes(wLog* log, const BYTE* srcData[4],
+                                          const int srcLineSize[4], BYTE* dstData[3],
+                                          const int dstLineSize[3], FREERDP_VIDEO_FORMAT format,
+                                          UINT32 width, UINT32 height)
+{
+	WINPR_UNUSED(log);
+
+	const UINT32 chromaWidth = (width + 1U) / 2U;
+	const UINT32 chromaHeight = (height + 1U) / 2U;
+	if (!freerdp_video_copy_plane(srcData[0], srcLineSize[0], dstData[0], dstLineSize[0], height,
+	                              width))
+		return FALSE;
+
+	switch (format)
+	{
+		case FREERDP_VIDEO_FORMAT_NV12:
+			return freerdp_video_copy_plane(srcData[1], srcLineSize[1], dstData[1],
+			                                dstLineSize[1], chromaHeight, width);
+		case FREERDP_VIDEO_FORMAT_YUV420P:
+			return freerdp_video_copy_plane(srcData[1], srcLineSize[1], dstData[1],
+			                                dstLineSize[1], chromaHeight, chromaWidth) &&
+			       freerdp_video_copy_plane(srcData[2], srcLineSize[2], dstData[2],
+			                                dstLineSize[2], chromaHeight, chromaWidth);
+		default:
+			return FALSE;
+	}
 }
 
 static BOOL freerdp_video_fill_plane_info(wLog* log, BYTE* data[4], int lineSize[4],

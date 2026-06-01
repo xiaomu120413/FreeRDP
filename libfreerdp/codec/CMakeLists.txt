@@ -183,17 +183,22 @@ endif()
 
 if(WITH_OHOS_AVCODEC)
   include(WarnExperimental)
-  warn_experimental("HarmonyOS AVCodec H264 decoder probe" "-DWITH_OHOS_AVCODEC=OFF")
+  warn_experimental("HarmonyOS AVCodec H264 codec probe" "-DWITH_OHOS_AVCODEC=OFF")
   list(APPEND CODEC_SRCS
        h264_ohos_callbacks.c
+       h264_ohos_bitstream.c
        h264_ohos_decoder.c
+       h264_ohos_encoder.c
+       h264_ohos_encoder_config.c
        h264_ohos_diagnostics.c
        h264_ohos_surface_state.c)
 
   find_library(OHOS_AVCODEC_VDEC_LIBRARY native_media_vdec REQUIRED)
+  find_library(OHOS_AVCODEC_VENC_LIBRARY native_media_venc REQUIRED)
   find_library(OHOS_AVCODEC_CODECBASE_LIBRARY native_media_codecbase REQUIRED)
   find_library(OHOS_AVCODEC_CORE_LIBRARY native_media_core REQUIRED)
   list(APPEND CODEC_LIBS ${OHOS_AVCODEC_VDEC_LIBRARY})
+  list(APPEND CODEC_LIBS ${OHOS_AVCODEC_VENC_LIBRARY})
   list(APPEND CODEC_LIBS ${OHOS_AVCODEC_CODECBASE_LIBRARY})
   list(APPEND CODEC_LIBS ${OHOS_AVCODEC_CORE_LIBRARY})
 endif()
