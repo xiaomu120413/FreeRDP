@@ -5,6 +5,8 @@
 
 #include "ohos_rdpgfx_internal.h"
 
+#define OHOS_RDPGFX_AVC420_SUPPRESSED_LOG_INTERVAL_US 2000000ULL
+
 BOOL freerdp_ohos_rdpgfx_avc444_command_lc_is_valid(
     const FREERDP_OHOS_RDPGFX_AVC444_COMMAND_INFO* command)
 {
@@ -210,6 +212,43 @@ UINT32 freerdp_ohos_rdpgfx_avc444_chroma_v1_required_y_height(const RECTANGLE_16
 	return required;
 }
 
+void ohos_rdpgfx_set_avc420_gpu_output_active(freerdpOhosRdpgfxBridge* bridge, BOOL active,
+                                              const char* reason)
+{
+	FREERDP_OHOS_RDPGFX_AVC444_OUTPUT_STATE_CALLBACK callback = NULL;
+	void* userData = NULL;
+	BOOL changed = FALSE;
+	UINT64 activations = 0;
+	UINT64 releases = 0;
+
+	if (!bridge)
+		return;
+
+	EnterCriticalSection(&bridge->lock);
+	if (bridge->avc420GpuOutputActive != active)
+	{
+		bridge->avc420GpuOutputActive = active;
+		if (active)
+			activations = ++bridge->avc420GpuOutputActivations;
+		else
+			releases = ++bridge->avc420GpuOutputReleases;
+		changed = TRUE;
+		callback = bridge->avc420OutputState;
+		userData = bridge->userData;
+	}
+	LeaveCriticalSection(&bridge->lock);
+
+	if (!changed)
+		return;
+	if (callback)
+		callback(active, reason ? reason : "AVC420 GPU output state changed", userData);
+	ohos_rdpgfx_log(bridge,
+	                "AVC420 GPU output owner changed by FreeRDP policy: active=%s "
+	                "reason=%s activations=%" PRIu64 " releases=%" PRIu64,
+	                active ? "yes" : "no", reason ? reason : "AVC420 GPU output state changed",
+	                activations, releases);
+}
+
 void ohos_rdpgfx_set_avc444_gpu_output_active(freerdpOhosRdpgfxBridge* bridge, BOOL active,
                                               const char* reason)
 {
@@ -294,6 +333,50 @@ static UINT ohos_rdpgfx_validate_avc420_gpu_surface_update(freerdpOhosRdpgfxBrid
 		*surfaceHeight = surface->height;
 
 	return CHANNEL_RC_OK;
+}
+
+static BOOL ohos_rdpgfx_apply_avc420_active_miss_policy(freerdpOhosRdpgfxBridge* bridge,
+                                                        const RDPGFX_SURFACE_COMMAND* command,
+                                                        UINT32 frameId)
+{
+	UINT64 suppressedFailures = 0;
+	UINT64 suppressedDelta = 0;
+	UINT64 releases = 0;
+	const UINT64 nowUs = ohos_rdpgfx_now_us();
+	BOOL shouldLog = FALSE;
+
+	if (!bridge || !command)
+		return FALSE;
+
+	EnterCriticalSection(&bridge->lock);
+	suppressedFailures = ++bridge->avc420GpuActiveSuppressedFailures;
+	suppressedDelta = ++bridge->avc420GpuActiveSuppressedSinceLog;
+	releases = bridge->avc420GpuOutputReleases;
+	if ((bridge->avc420GpuLastSuppressedLogUs == 0) ||
+	    ((nowUs >= bridge->avc420GpuLastSuppressedLogUs) &&
+	     ((nowUs - bridge->avc420GpuLastSuppressedLogUs) >=
+	      OHOS_RDPGFX_AVC420_SUPPRESSED_LOG_INTERVAL_US)) ||
+	    ohos_rdpgfx_should_log_counter(suppressedFailures))
+	{
+		shouldLog = TRUE;
+		bridge->avc420GpuLastSuppressedLogUs = nowUs;
+		bridge->avc420GpuActiveSuppressedSinceLog = 0;
+	}
+	LeaveCriticalSection(&bridge->lock);
+
+	if (shouldLog)
+	{
+		ohos_rdpgfx_log(
+		    bridge,
+		    "AVC420 active-miss policy keeps GPU output active and suppresses native AVC420 "
+		    "GDI re-entry: codec=%s surface=%" PRIu32 " frame=%" PRIu32
+		    " activeSuppressed=%" PRIu64 " suppressedDelta=%" PRIu64
+		    " releases=%" PRIu64 " policy=preserve-owner",
+		    freerdp_ohos_rdpgfx_codec_name(command->codecId), command->surfaceId, frameId,
+		    suppressedFailures, suppressedDelta, releases);
+	}
+
+	return TRUE;
 }
 
 BOOL ohos_rdpgfx_record_avc420_gpu_candidate(freerdpOhosRdpgfxBridge* bridge,
@@ -410,19 +493,24 @@ BOOL ohos_rdpgfx_record_avc420_gpu_candidate(freerdpOhosRdpgfxBridge* bridge,
 		info.stream.numRegionRects = bs->meta.numRegionRects;
 		callbackReady = callback(&info, userData);
 
+		BOOL activateOutput = FALSE;
 		EnterCriticalSection(&bridge->lock);
 		bridge->avc420GpuCallbacks++;
 		if (callbackReady)
 			bridge->avc420GpuCallbackReady++;
 		if (callbackReady && !bridge->avc420GpuOutputActive)
 		{
-			bridge->avc420GpuOutputActive = TRUE;
-			bridge->avc420GpuOutputActivations++;
-			outputActive = TRUE;
+			activateOutput = TRUE;
 		}
 		else
 			outputActive = bridge->avc420GpuOutputActive;
 		LeaveCriticalSection(&bridge->lock);
+		if (activateOutput)
+		{
+			ohos_rdpgfx_set_avc420_gpu_output_active(
+			    bridge, TRUE, "AVC420 GPU compositor handled SurfaceCommand");
+			outputActive = TRUE;
+		}
 
 		if (callbackReady)
 		{
@@ -452,17 +540,7 @@ BOOL ohos_rdpgfx_record_avc420_gpu_candidate(freerdpOhosRdpgfxBridge* bridge,
 
 	if (outputActive)
 	{
-		UINT64 suppressedFailures = 0;
-		EnterCriticalSection(&bridge->lock);
-		suppressedFailures = ++bridge->avc420GpuActiveSuppressedFailures;
-		LeaveCriticalSection(&bridge->lock);
-		ohos_rdpgfx_log(
-		    bridge,
-		    "AVC420 GPU compositor callback did not handle command while GPU output is active; "
-		    "FreeRDP policy keeps native GDI suppressed to avoid H264 stream divergence: "
-		    "surface=%" PRIu32 " frame=%" PRIu32 " activeSuppressed=%" PRIu64,
-		    command->surfaceId, frameId, suppressedFailures);
-		return TRUE;
+		return ohos_rdpgfx_apply_avc420_active_miss_policy(bridge, command, frameId);
 	}
 
 	EnterCriticalSection(&bridge->lock);

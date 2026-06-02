@@ -23,6 +23,163 @@ static BOOL ohos_rdpgfx_registry_ready(void)
 	return InitOnceExecuteOnce(&g_ohos_rdpgfx_registry_once, ohos_rdpgfx_registry_init, NULL, NULL);
 }
 
+UINT64 ohos_rdpgfx_now_us(void)
+{
+	return winpr_GetTickCount64NS() / 1000ULL;
+}
+
+void ohos_rdpgfx_record_gap_us(UINT64 nowUs, UINT64* lastUs, UINT64* maxGapUs)
+{
+	if (!lastUs || !maxGapUs || (nowUs == 0))
+		return;
+
+	if ((*lastUs != 0) && (nowUs >= *lastUs))
+	{
+		const UINT64 gapUs = nowUs - *lastUs;
+		if (gapUs > *maxGapUs)
+			*maxGapUs = gapUs;
+	}
+	*lastUs = nowUs;
+}
+
+static void ohos_rdpgfx_rate_parts(UINT64 delta, UINT64 elapsedUs, UINT64* whole, UINT64* tenth)
+{
+	const UINT64 rate10 = (elapsedUs > 0) ? ((delta * 10000000ULL) / elapsedUs) : 0;
+	if (whole)
+		*whole = rate10 / 10ULL;
+	if (tenth)
+		*tenth = rate10 % 10ULL;
+}
+
+static void ohos_rdpgfx_ms_parts(UINT64 us, UINT64* whole, UINT64* tenth)
+{
+	const UINT64 ms10 = us / 100ULL;
+	if (whole)
+		*whole = ms10 / 10ULL;
+	if (tenth)
+		*tenth = ms10 % 10ULL;
+}
+
+static void ohos_rdpgfx_reset_input_stats_window_locked(freerdpOhosRdpgfxBridge* bridge,
+                                                       UINT64 nowUs)
+{
+	bridge->lastInputStatsTimeUs = nowUs;
+	bridge->lastInputStatsStartFrames = bridge->startFrames;
+	bridge->lastInputStatsEndFrames = bridge->endFrames;
+	bridge->lastInputStatsSurfaceCommands = bridge->surfaceCommands;
+	bridge->lastInputStatsCodecUncompressed = bridge->codecUncompressed;
+	bridge->lastInputStatsCodecCavideo = bridge->codecCavideo;
+	bridge->lastInputStatsCodecClearCodec = bridge->codecClearCodec;
+	bridge->lastInputStatsCodecPlanar = bridge->codecPlanar;
+	bridge->lastInputStatsCodecProgressive = bridge->codecProgressive;
+	bridge->lastInputStatsCodecAvc420 = bridge->codecAvc420;
+	bridge->lastInputStatsCodecAlpha = bridge->codecAlpha;
+	bridge->lastInputStatsCodecAvc444 = bridge->codecAvc444;
+	bridge->lastInputStatsCodecAvc444v2 = bridge->codecAvc444v2;
+	bridge->lastInputStatsCodecUnknown = bridge->codecUnknown;
+	bridge->maxStartFrameGapUs = 0;
+	bridge->maxEndFrameGapUs = 0;
+	bridge->maxSurfaceCommandGapUs = 0;
+	bridge->maxAvc420CommandGapUs = 0;
+}
+
+BOOL ohos_rdpgfx_build_input_stats_locked(freerdpOhosRdpgfxBridge* bridge,
+                                          const char* reason, UINT64 nowUs, char* buffer,
+                                          size_t size)
+{
+	const UINT64 statsIntervalUs = 2000000ULL;
+	if (!bridge || !buffer || (size == 0))
+		return FALSE;
+
+	buffer[0] = '\0';
+	if (nowUs == 0)
+		nowUs = ohos_rdpgfx_now_us();
+
+	if ((bridge->lastInputStatsTimeUs == 0) || (nowUs < bridge->lastInputStatsTimeUs))
+	{
+		ohos_rdpgfx_reset_input_stats_window_locked(bridge, nowUs);
+		return FALSE;
+	}
+
+	const UINT64 elapsedUs = nowUs - bridge->lastInputStatsTimeUs;
+	if (elapsedUs < statsIntervalUs)
+		return FALSE;
+
+	const UINT64 startDelta = bridge->startFrames - bridge->lastInputStatsStartFrames;
+	const UINT64 endDelta = bridge->endFrames - bridge->lastInputStatsEndFrames;
+	const UINT64 surfaceDelta =
+	    bridge->surfaceCommands - bridge->lastInputStatsSurfaceCommands;
+	const UINT64 rawDelta =
+	    bridge->codecUncompressed - bridge->lastInputStatsCodecUncompressed;
+	const UINT64 cavideoDelta = bridge->codecCavideo - bridge->lastInputStatsCodecCavideo;
+	const UINT64 clearDelta = bridge->codecClearCodec - bridge->lastInputStatsCodecClearCodec;
+	const UINT64 planarDelta = bridge->codecPlanar - bridge->lastInputStatsCodecPlanar;
+	const UINT64 progressiveDelta =
+	    bridge->codecProgressive - bridge->lastInputStatsCodecProgressive;
+	const UINT64 avc420Delta = bridge->codecAvc420 - bridge->lastInputStatsCodecAvc420;
+	const UINT64 alphaDelta = bridge->codecAlpha - bridge->lastInputStatsCodecAlpha;
+	const UINT64 avc444Delta = bridge->codecAvc444 - bridge->lastInputStatsCodecAvc444;
+	const UINT64 avc444v2Delta =
+	    bridge->codecAvc444v2 - bridge->lastInputStatsCodecAvc444v2;
+	const UINT64 unknownDelta = bridge->codecUnknown - bridge->lastInputStatsCodecUnknown;
+	const UINT64 maxStartGapUs = bridge->maxStartFrameGapUs;
+	const UINT64 maxEndGapUs = bridge->maxEndFrameGapUs;
+	const UINT64 maxSurfaceGapUs = bridge->maxSurfaceCommandGapUs;
+	const UINT64 maxAvc420GapUs = bridge->maxAvc420CommandGapUs;
+	UINT64 frameFpsWhole = 0;
+	UINT64 frameFpsTenth = 0;
+	UINT64 endFrameFpsWhole = 0;
+	UINT64 endFrameFpsTenth = 0;
+	UINT64 surfaceFpsWhole = 0;
+	UINT64 surfaceFpsTenth = 0;
+	UINT64 avc420FpsWhole = 0;
+	UINT64 avc420FpsTenth = 0;
+	UINT64 maxStartGapMsWhole = 0;
+	UINT64 maxStartGapMsTenth = 0;
+	UINT64 maxEndGapMsWhole = 0;
+	UINT64 maxEndGapMsTenth = 0;
+	UINT64 maxSurfaceGapMsWhole = 0;
+	UINT64 maxSurfaceGapMsTenth = 0;
+	UINT64 maxAvc420GapMsWhole = 0;
+	UINT64 maxAvc420GapMsTenth = 0;
+
+	ohos_rdpgfx_rate_parts(startDelta, elapsedUs, &frameFpsWhole, &frameFpsTenth);
+	ohos_rdpgfx_rate_parts(endDelta, elapsedUs, &endFrameFpsWhole, &endFrameFpsTenth);
+	ohos_rdpgfx_rate_parts(surfaceDelta, elapsedUs, &surfaceFpsWhole, &surfaceFpsTenth);
+	ohos_rdpgfx_rate_parts(avc420Delta, elapsedUs, &avc420FpsWhole, &avc420FpsTenth);
+	ohos_rdpgfx_ms_parts(maxStartGapUs, &maxStartGapMsWhole, &maxStartGapMsTenth);
+	ohos_rdpgfx_ms_parts(maxEndGapUs, &maxEndGapMsWhole, &maxEndGapMsTenth);
+	ohos_rdpgfx_ms_parts(maxSurfaceGapUs, &maxSurfaceGapMsWhole, &maxSurfaceGapMsTenth);
+	ohos_rdpgfx_ms_parts(maxAvc420GapUs, &maxAvc420GapMsWhole, &maxAvc420GapMsTenth);
+
+	(void)snprintf(
+	    buffer, size,
+	    "RDPGFX input stats: reason=%s windowMs=%" PRIu64 " frameDelta=%" PRIu64 "/%" PRIu64
+	    " startFrameDelta=%" PRIu64 " endFrameDelta=%" PRIu64 " frameFps=%" PRIu64
+	    ".%" PRIu64 " endFrameFps=%" PRIu64 ".%" PRIu64 " surfaceDelta=%" PRIu64
+	    " surfaceFps=%" PRIu64 ".%" PRIu64 " avc420Delta=%" PRIu64 " avc420Fps=%" PRIu64
+	    ".%" PRIu64 " clearDelta=%" PRIu64 " progressiveDelta=%" PRIu64
+	    " rawDelta=%" PRIu64 " cavideoDelta=%" PRIu64 " planarDelta=%" PRIu64
+	    " avc444Delta=%" PRIu64 " avc444v2Delta=%" PRIu64 " alphaDelta=%" PRIu64
+	    " unknownDelta=%" PRIu64 " maxRdpgfxFrameGapMs=%" PRIu64 ".%" PRIu64
+	    " maxEndFrameGapMs=%" PRIu64 ".%" PRIu64 " maxCommandGapMs=%" PRIu64 ".%" PRIu64
+	    " maxAvc420CommandGapMs=%" PRIu64 ".%" PRIu64 " lastCodec=%s(%" PRIu32
+	    ") lastSurface=%" PRIu32 " lastSize=%" PRIu32 "x%" PRIu32 " frame=open:%s,id:%" PRIu32,
+	    reason ? reason : "unknown", elapsedUs / 1000ULL, startDelta, endDelta, startDelta,
+	    endDelta, frameFpsWhole, frameFpsTenth, endFrameFpsWhole, endFrameFpsTenth,
+	    surfaceDelta, surfaceFpsWhole, surfaceFpsTenth, avc420Delta, avc420FpsWhole,
+	    avc420FpsTenth, clearDelta, progressiveDelta, rawDelta, cavideoDelta, planarDelta,
+	    avc444Delta, avc444v2Delta, alphaDelta, unknownDelta, maxStartGapMsWhole,
+	    maxStartGapMsTenth, maxEndGapMsWhole, maxEndGapMsTenth, maxSurfaceGapMsWhole,
+	    maxSurfaceGapMsTenth, maxAvc420GapMsWhole, maxAvc420GapMsTenth,
+	    freerdp_ohos_rdpgfx_codec_name(bridge->lastCodecId), bridge->lastCodecId,
+	    bridge->lastSurfaceId, bridge->lastCommandWidth, bridge->lastCommandHeight,
+	    bridge->frameOpen ? "yes" : "no", bridge->activeFrameId);
+
+	ohos_rdpgfx_reset_input_stats_window_locked(bridge, nowUs);
+	return TRUE;
+}
+
 void ohos_rdpgfx_registry_add(freerdpOhosRdpgfxBridge* bridge)
 {
 	if (!bridge || !ohos_rdpgfx_registry_ready())
@@ -87,14 +244,23 @@ UINT ohos_rdpgfx_start_frame(RdpgfxClientContext* context, const RDPGFX_START_FR
 {
 	freerdpOhosRdpgfxBridge* bridge = ohos_rdpgfx_bridge_from_context(context);
 	pcRdpgfxStartFrame original = NULL;
+	char inputStats[1024] = { 0 };
+	BOOL logInputStats = FALSE;
 	if (bridge)
 	{
+		const UINT64 nowUs = ohos_rdpgfx_now_us();
 		EnterCriticalSection(&bridge->lock);
 		bridge->startFrames++;
 		bridge->activeFrameId = startFrame ? startFrame->frameId : 0;
 		bridge->frameOpen = TRUE;
+		ohos_rdpgfx_record_gap_us(nowUs, &bridge->lastStartFrameTimeUs,
+		                           &bridge->maxStartFrameGapUs);
+		logInputStats = ohos_rdpgfx_build_input_stats_locked(
+		    bridge, "startFrame", nowUs, inputStats, sizeof(inputStats));
 		original = bridge->hooks.startFrame;
 		LeaveCriticalSection(&bridge->lock);
+		if (logInputStats)
+			ohos_rdpgfx_log(bridge, "%s", inputStats);
 	}
 	return original ? original(context, startFrame) : ERROR_INTERNAL_ERROR;
 }
@@ -107,38 +273,60 @@ UINT ohos_rdpgfx_end_frame(RdpgfxClientContext* context, const RDPGFX_END_FRAME_
 	BOOL avc444GpuCompositor = FALSE;
 	UINT32 activeFrameId = 0;
 	BOOL matchedFrame = FALSE;
+	UINT64 avc420FrameMismatches = 0;
+	UINT64 avc444FrameMismatches = 0;
+	char inputStats[1024] = { 0 };
+	BOOL logInputStats = FALSE;
 	FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK avc420EndFrame = NULL;
 	FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK avc444EndFrame = NULL;
 	void* userData = NULL;
 	UINT status = ERROR_INTERNAL_ERROR;
 	if (bridge)
 	{
+		const UINT64 nowUs = ohos_rdpgfx_now_us();
 		EnterCriticalSection(&bridge->lock);
 		bridge->endFrames++;
 		activeFrameId = bridge->activeFrameId;
 		matchedFrame =
 		    bridge->frameOpen && (!endFrame || (endFrame->frameId == bridge->activeFrameId));
 		bridge->frameOpen = FALSE;
+		ohos_rdpgfx_record_gap_us(nowUs, &bridge->lastEndFrameTimeUs,
+		                           &bridge->maxEndFrameGapUs);
+		logInputStats = ohos_rdpgfx_build_input_stats_locked(
+		    bridge, "endFrame", nowUs, inputStats, sizeof(inputStats));
 		avc420GpuCompositor = bridge->avc420GpuCompositor;
 		avc444GpuCompositor = bridge->avc444GpuCompositor;
+		if (!matchedFrame)
+		{
+			if (avc420GpuCompositor)
+				avc420FrameMismatches = ++bridge->avc420GpuFrameMismatchSkips;
+			if (avc444GpuCompositor)
+				avc444FrameMismatches = ++bridge->avc444GpuFrameMismatchSkips;
+		}
 		original = bridge->hooks.endFrame;
 		avc420EndFrame = bridge->avc420EndFrame;
 		avc444EndFrame = bridge->avc444EndFrame;
 		userData = bridge->userData;
 		LeaveCriticalSection(&bridge->lock);
-		if (avc420GpuCompositor && !matchedFrame)
+		if (logInputStats)
+			ohos_rdpgfx_log(bridge, "%s", inputStats);
+		if (avc420GpuCompositor && !matchedFrame &&
+		    ohos_rdpgfx_should_log_counter(avc420FrameMismatches))
 		{
 			ohos_rdpgfx_log(bridge,
 			                "rdpgfx end frame observed for AVC420 GPU compositor: frameId=%" PRIu32
-			                " active=%" PRIu32 " matched=no",
-			                endFrame ? endFrame->frameId : 0, activeFrameId);
+			                " active=%" PRIu32 " matched=no mismatches=%" PRIu64,
+			                endFrame ? endFrame->frameId : 0, activeFrameId,
+			                avc420FrameMismatches);
 		}
-		if (avc444GpuCompositor && !matchedFrame)
+		if (avc444GpuCompositor && !matchedFrame &&
+		    ohos_rdpgfx_should_log_counter(avc444FrameMismatches))
 		{
 			ohos_rdpgfx_log(bridge,
 			                "rdpgfx end frame observed for AVC444 GPU compositor: frameId=%" PRIu32
-			                " active=%" PRIu32 " matched=no",
-			                endFrame ? endFrame->frameId : 0, activeFrameId);
+			                " active=%" PRIu32 " matched=no mismatches=%" PRIu64,
+			                endFrame ? endFrame->frameId : 0, activeFrameId,
+			                avc444FrameMismatches);
 		}
 	}
 	status = original ? original(context, endFrame) : ERROR_INTERNAL_ERROR;
@@ -198,6 +386,7 @@ void freerdp_ohos_rdpgfx_bridge_reset(freerdpOhosRdpgfxBridge* bridge, BOOL requ
 	bridge->avc420GpuCompositor = FALSE;
 	bridge->avc420SurfaceCommand = NULL;
 	bridge->avc420EndFrame = NULL;
+	bridge->avc420OutputState = NULL;
 	bridge->avc444GpuCompositor = FALSE;
 	bridge->avc444EndFrame = NULL;
 	bridge->avc444OutputState = NULL;
@@ -219,6 +408,28 @@ void freerdp_ohos_rdpgfx_bridge_reset(freerdpOhosRdpgfxBridge* bridge, BOOL requ
 	bridge->codecAvc444 = 0;
 	bridge->codecAvc444v2 = 0;
 	bridge->codecUnknown = 0;
+	bridge->lastInputStatsTimeUs = 0;
+	bridge->lastInputStatsStartFrames = 0;
+	bridge->lastInputStatsEndFrames = 0;
+	bridge->lastInputStatsSurfaceCommands = 0;
+	bridge->lastInputStatsCodecUncompressed = 0;
+	bridge->lastInputStatsCodecCavideo = 0;
+	bridge->lastInputStatsCodecClearCodec = 0;
+	bridge->lastInputStatsCodecPlanar = 0;
+	bridge->lastInputStatsCodecProgressive = 0;
+	bridge->lastInputStatsCodecAvc420 = 0;
+	bridge->lastInputStatsCodecAlpha = 0;
+	bridge->lastInputStatsCodecAvc444 = 0;
+	bridge->lastInputStatsCodecAvc444v2 = 0;
+	bridge->lastInputStatsCodecUnknown = 0;
+	bridge->lastStartFrameTimeUs = 0;
+	bridge->lastEndFrameTimeUs = 0;
+	bridge->lastSurfaceCommandTimeUs = 0;
+	bridge->lastAvc420CommandTimeUs = 0;
+	bridge->maxStartFrameGapUs = 0;
+	bridge->maxEndFrameGapUs = 0;
+	bridge->maxSurfaceCommandGapUs = 0;
+	bridge->maxAvc420CommandGapUs = 0;
 	bridge->avc420GpuCandidates = 0;
 	bridge->avc420GpuDisabled = 0;
 	bridge->avc420GpuGdiPreserved = 0;
@@ -228,6 +439,9 @@ void freerdp_ohos_rdpgfx_bridge_reset(freerdpOhosRdpgfxBridge* bridge, BOOL requ
 	bridge->avc420GpuOutputActivations = 0;
 	bridge->avc420GpuOutputReleases = 0;
 	bridge->avc420GpuActiveSuppressedFailures = 0;
+	bridge->avc420GpuActiveSuppressedSinceLog = 0;
+	bridge->avc420GpuLastSuppressedLogUs = 0;
+	bridge->avc420GpuFrameMismatchSkips = 0;
 	bridge->avc444GpuCandidates = 0;
 	bridge->avc444GpuDisabled = 0;
 	bridge->avc444GpuGdiPreserved = 0;
@@ -277,6 +491,44 @@ void freerdp_ohos_rdpgfx_bridge_set_surface_target(freerdpOhosRdpgfxBridge* brid
 	LeaveCriticalSection(&bridge->lock);
 }
 
+void freerdp_ohos_rdpgfx_bridge_set_avc420_gpu_output_active(
+    freerdpOhosRdpgfxBridge* bridge, BOOL active, const char* reason)
+{
+	BOOL changed = FALSE;
+	UINT64 activations = 0;
+	UINT64 releases = 0;
+
+	if (!bridge)
+		return;
+
+	EnterCriticalSection(&bridge->lock);
+	if (bridge->avc420GpuOutputActive != active)
+	{
+		bridge->avc420GpuOutputActive = active;
+		if (active)
+			activations = ++bridge->avc420GpuOutputActivations;
+		else
+			releases = ++bridge->avc420GpuOutputReleases;
+		changed = TRUE;
+	}
+	else
+	{
+		activations = bridge->avc420GpuOutputActivations;
+		releases = bridge->avc420GpuOutputReleases;
+	}
+	LeaveCriticalSection(&bridge->lock);
+
+	if (changed)
+	{
+		ohos_rdpgfx_log(bridge,
+		                "AVC420 GPU output owner synced by app policy: active=%s reason=%s "
+		                "activations=%" PRIu64 " releases=%" PRIu64,
+		                active ? "yes" : "no",
+		                reason ? reason : "AVC420 GPU app output policy sync", activations,
+		                releases);
+	}
+}
+
 BOOL freerdp_ohos_rdpgfx_bridge_attach(freerdpOhosRdpgfxBridge* bridge, RdpgfxClientContext* gfx,
                                        const FREERDP_OHOS_RDPGFX_BRIDGE_CONFIG* config,
                                        char* message, size_t messageSize)
@@ -300,6 +552,7 @@ BOOL freerdp_ohos_rdpgfx_bridge_attach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 		bridge->log = config->log;
 		bridge->avc420SurfaceCommand = config->avc420SurfaceCommand;
 		bridge->avc420EndFrame = config->avc420EndFrame;
+		bridge->avc420OutputState = config->avc420OutputState;
 		bridge->avc444SurfaceCommand = config->avc444SurfaceCommand;
 		bridge->avc444EndFrame = config->avc444EndFrame;
 		bridge->avc444OutputState = config->avc444OutputState;
@@ -326,6 +579,7 @@ BOOL freerdp_ohos_rdpgfx_bridge_attach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 	bridge->log = config->log;
 	bridge->avc420SurfaceCommand = config->avc420SurfaceCommand;
 	bridge->avc420EndFrame = config->avc420EndFrame;
+	bridge->avc420OutputState = config->avc420OutputState;
 	bridge->avc444SurfaceCommand = config->avc444SurfaceCommand;
 	bridge->avc444EndFrame = config->avc444EndFrame;
 	bridge->avc444OutputState = config->avc444OutputState;
@@ -359,6 +613,7 @@ void freerdp_ohos_rdpgfx_bridge_detach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 
 	RdpgfxClientContext* active = NULL;
 	FREERDP_OHOS_RDPGFX_HOOKS hooks = { 0 };
+	FREERDP_OHOS_RDPGFX_AVC444_OUTPUT_STATE_CALLBACK avc420OutputState = NULL;
 	FREERDP_OHOS_RDPGFX_AVC444_OUTPUT_STATE_CALLBACK avc444OutputState = NULL;
 	void* userData = NULL;
 	BOOL wasAvc420OutputActive = FALSE;
@@ -379,10 +634,12 @@ void freerdp_ohos_rdpgfx_bridge_detach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 		bridge->activeFrameId = 0;
 		bridge->avc420SurfaceCommand = NULL;
 		bridge->avc420EndFrame = NULL;
+		avc420OutputState = bridge->avc420OutputState;
 		wasAvc420OutputActive = bridge->avc420GpuOutputActive;
 		bridge->avc420GpuOutputActive = FALSE;
 		if (wasAvc420OutputActive)
 			bridge->avc420GpuOutputReleases++;
+		bridge->avc420OutputState = NULL;
 		bridge->avc444EndFrame = NULL;
 		avc444OutputState = bridge->avc444OutputState;
 		userData = bridge->userData;
@@ -395,6 +652,8 @@ void freerdp_ohos_rdpgfx_bridge_detach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 	}
 	LeaveCriticalSection(&bridge->lock);
 
+	if (wasAvc420OutputActive && avc420OutputState)
+		avc420OutputState(FALSE, "rdpgfx bridge detached", userData);
 	if (wasAvc444OutputActive && avc444OutputState)
 		avc444OutputState(FALSE, "rdpgfx bridge detached", userData);
 

@@ -30,7 +30,7 @@ void ohos_rdpgfx_log(freerdpOhosRdpgfxBridge* bridge, const char* format, ...)
 	if (!log)
 		return;
 
-	char message[512] = { 0 };
+	char message[1024] = { 0 };
 	va_list args;
 	va_start(args, format);
 	(void)vsnprintf(message, sizeof(message), format, args);
@@ -63,7 +63,7 @@ const char* freerdp_ohos_rdpgfx_bridge_get_diagnostics(freerdpOhosRdpgfxBridge* 
 	    " lastSize=%" PRIu32 "x%" PRIu32 " frame=open:%s,id:%" PRIu32
 	    " avc420Gpu=compositor:%s,suppressGdi:per-command"
 	    ",candidates:%" PRIu64 ",disabled:%" PRIu64 ",gdiPreserved:%" PRIu64
-	    ",callbacks:%" PRIu64 ",callbackReady:%" PRIu64
+	    ",frameMismatch:%" PRIu64 ",callbacks:%" PRIu64 ",callbackReady:%" PRIu64
 	    ",output:%s,activate:%" PRIu64 ",release:%" PRIu64 ",activeSuppressed:%" PRIu64
 	    " avc420Last=frame:%" PRIu32 ",rects:%" PRIu32 ",bytes:%" PRIu32 ",full:%s"
 	    " avc444Gpu=compositor:%s,suppressGdi:per-command"
@@ -86,7 +86,8 @@ const char* freerdp_ohos_rdpgfx_bridge_get_diagnostics(freerdpOhosRdpgfxBridge* 
 	    bridge->lastSurfaceId, bridge->lastCommandWidth, bridge->lastCommandHeight,
 	    bridge->frameOpen ? "yes" : "no", bridge->activeFrameId,
 	    bridge->avc420GpuCompositor ? "on" : "off", bridge->avc420GpuCandidates,
-	    bridge->avc420GpuDisabled, bridge->avc420GpuGdiPreserved, bridge->avc420GpuCallbacks,
+	    bridge->avc420GpuDisabled, bridge->avc420GpuGdiPreserved,
+	    bridge->avc420GpuFrameMismatchSkips, bridge->avc420GpuCallbacks,
 	    bridge->avc420GpuCallbackReady, bridge->avc420GpuOutputActive ? "active" : "gdi",
 	    bridge->avc420GpuOutputActivations, bridge->avc420GpuOutputReleases,
 	    bridge->avc420GpuActiveSuppressedFailures, bridge->lastAvc420FrameId,

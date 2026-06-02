@@ -90,6 +90,7 @@ typedef struct
 	FREERDP_OHOS_RDPGFX_LOG_CALLBACK log;
 	FREERDP_OHOS_RDPGFX_AVC420_SURFACE_CALLBACK avc420SurfaceCommand;
 	FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK avc420EndFrame;
+	FREERDP_OHOS_RDPGFX_AVC444_OUTPUT_STATE_CALLBACK avc420OutputState;
 	FREERDP_OHOS_RDPGFX_AVC444_SURFACE_CALLBACK avc444SurfaceCommand;
 	FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK avc444EndFrame;
 	FREERDP_OHOS_RDPGFX_AVC444_OUTPUT_STATE_CALLBACK avc444OutputState;
@@ -102,6 +103,8 @@ FREERDP_API void freerdp_ohos_rdpgfx_bridge_reset(freerdpOhosRdpgfxBridge* bridg
                                                   BOOL requested, BOOL h264Requested);
 FREERDP_API void freerdp_ohos_rdpgfx_bridge_set_surface_target(
     freerdpOhosRdpgfxBridge* bridge, UINT32 width, UINT32 height);
+FREERDP_API void freerdp_ohos_rdpgfx_bridge_set_avc420_gpu_output_active(
+    freerdpOhosRdpgfxBridge* bridge, BOOL active, const char* reason);
 FREERDP_API BOOL freerdp_ohos_rdpgfx_bridge_attach(
     freerdpOhosRdpgfxBridge* bridge, RdpgfxClientContext* gfx,
     const FREERDP_OHOS_RDPGFX_BRIDGE_CONFIG* config, char* message, size_t messageSize);

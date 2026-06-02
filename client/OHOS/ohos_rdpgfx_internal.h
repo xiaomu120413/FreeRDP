@@ -17,6 +17,7 @@
 #include <freerdp/gdi/region.h>
 #include <winpr/crt.h>
 #include <winpr/synch.h>
+#include <winpr/sysinfo.h>
 #include <winpr/wtsapi.h>
 
 #include "ohos_graphics.h"
@@ -68,6 +69,7 @@ struct freerdp_ohos_rdpgfx_bridge
 	FREERDP_OHOS_RDPGFX_LOG_CALLBACK log;
 	FREERDP_OHOS_RDPGFX_AVC420_SURFACE_CALLBACK avc420SurfaceCommand;
 	FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK avc420EndFrame;
+	FREERDP_OHOS_RDPGFX_AVC444_OUTPUT_STATE_CALLBACK avc420OutputState;
 	FREERDP_OHOS_RDPGFX_AVC444_SURFACE_CALLBACK avc444SurfaceCommand;
 	FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK avc444EndFrame;
 	FREERDP_OHOS_RDPGFX_AVC444_OUTPUT_STATE_CALLBACK avc444OutputState;
@@ -88,6 +90,28 @@ struct freerdp_ohos_rdpgfx_bridge
 	UINT64 codecAvc444;
 	UINT64 codecAvc444v2;
 	UINT64 codecUnknown;
+	UINT64 lastInputStatsTimeUs;
+	UINT64 lastInputStatsStartFrames;
+	UINT64 lastInputStatsEndFrames;
+	UINT64 lastInputStatsSurfaceCommands;
+	UINT64 lastInputStatsCodecUncompressed;
+	UINT64 lastInputStatsCodecCavideo;
+	UINT64 lastInputStatsCodecClearCodec;
+	UINT64 lastInputStatsCodecPlanar;
+	UINT64 lastInputStatsCodecProgressive;
+	UINT64 lastInputStatsCodecAvc420;
+	UINT64 lastInputStatsCodecAlpha;
+	UINT64 lastInputStatsCodecAvc444;
+	UINT64 lastInputStatsCodecAvc444v2;
+	UINT64 lastInputStatsCodecUnknown;
+	UINT64 lastStartFrameTimeUs;
+	UINT64 lastEndFrameTimeUs;
+	UINT64 lastSurfaceCommandTimeUs;
+	UINT64 lastAvc420CommandTimeUs;
+	UINT64 maxStartFrameGapUs;
+	UINT64 maxEndFrameGapUs;
+	UINT64 maxSurfaceCommandGapUs;
+	UINT64 maxAvc420CommandGapUs;
 	UINT64 avc420GpuCandidates;
 	UINT64 avc420GpuDisabled;
 	UINT64 avc420GpuGdiPreserved;
@@ -97,6 +121,9 @@ struct freerdp_ohos_rdpgfx_bridge
 	UINT64 avc420GpuOutputActivations;
 	UINT64 avc420GpuOutputReleases;
 	UINT64 avc420GpuActiveSuppressedFailures;
+	UINT64 avc420GpuActiveSuppressedSinceLog;
+	UINT64 avc420GpuLastSuppressedLogUs;
+	UINT64 avc420GpuFrameMismatchSkips;
 	UINT64 avc444GpuCandidates;
 	UINT64 avc444GpuDisabled;
 	UINT64 avc444GpuGdiPreserved;
@@ -146,6 +173,11 @@ void ohos_rdpgfx_format_message(char* message, size_t size, const char* format, 
 const char* ohos_rdpgfx_confirmed_mode_name(UINT32 mode);
 void ohos_rdpgfx_log(freerdpOhosRdpgfxBridge* bridge, const char* format, ...);
 BOOL ohos_rdpgfx_should_log_counter(UINT64 count);
+UINT64 ohos_rdpgfx_now_us(void);
+void ohos_rdpgfx_record_gap_us(UINT64 nowUs, UINT64* lastUs, UINT64* maxGapUs);
+BOOL ohos_rdpgfx_build_input_stats_locked(freerdpOhosRdpgfxBridge* bridge,
+                                          const char* reason, UINT64 nowUs,
+                                          char* buffer, size_t size);
 
 void ohos_rdpgfx_registry_add(freerdpOhosRdpgfxBridge* bridge);
 void ohos_rdpgfx_registry_remove(freerdpOhosRdpgfxBridge* bridge);
@@ -180,6 +212,8 @@ BOOL ohos_rdpgfx_record_avc420_gpu_candidate(freerdpOhosRdpgfxBridge* bridge,
                                              RdpgfxClientContext* context,
                                              const RDPGFX_SURFACE_COMMAND* command,
                                              UINT* consumedStatus);
+void ohos_rdpgfx_set_avc420_gpu_output_active(freerdpOhosRdpgfxBridge* bridge, BOOL active,
+                                              const char* reason);
 void ohos_rdpgfx_set_avc444_gpu_output_active(freerdpOhosRdpgfxBridge* bridge, BOOL active,
                                               const char* reason);
 

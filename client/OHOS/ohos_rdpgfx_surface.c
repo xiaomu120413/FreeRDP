@@ -11,12 +11,17 @@ void ohos_rdpgfx_record_surface_command(freerdpOhosRdpgfxBridge* bridge,
 	if (!bridge || !command)
 		return;
 
+	const UINT64 nowUs = ohos_rdpgfx_now_us();
+	char inputStats[1024] = { 0 };
+	BOOL logInputStats = FALSE;
 	EnterCriticalSection(&bridge->lock);
 	bridge->surfaceCommands++;
 	bridge->lastCodecId = command->codecId;
 	bridge->lastSurfaceId = command->surfaceId;
 	bridge->lastCommandWidth = command->width;
 	bridge->lastCommandHeight = command->height;
+	ohos_rdpgfx_record_gap_us(nowUs, &bridge->lastSurfaceCommandTimeUs,
+	                           &bridge->maxSurfaceCommandGapUs);
 
 	switch (command->codecId)
 	{
@@ -38,6 +43,8 @@ void ohos_rdpgfx_record_surface_command(freerdpOhosRdpgfxBridge* bridge,
 			break;
 		case RDPGFX_CODECID_AVC420:
 			bridge->codecAvc420++;
+			ohos_rdpgfx_record_gap_us(nowUs, &bridge->lastAvc420CommandTimeUs,
+			                           &bridge->maxAvc420CommandGapUs);
 			break;
 		case RDPGFX_CODECID_ALPHA:
 			bridge->codecAlpha++;
@@ -52,7 +59,11 @@ void ohos_rdpgfx_record_surface_command(freerdpOhosRdpgfxBridge* bridge,
 			bridge->codecUnknown++;
 			break;
 	}
+	logInputStats = ohos_rdpgfx_build_input_stats_locked(
+	    bridge, "surfaceCommand", nowUs, inputStats, sizeof(inputStats));
 	LeaveCriticalSection(&bridge->lock);
+	if (logInputStats)
+		ohos_rdpgfx_log(bridge, "%s", inputStats);
 }
 
 gdiGfxSurface* ohos_rdpgfx_get_gdi_surface(RdpgfxClientContext* context, UINT32 surfaceId)
