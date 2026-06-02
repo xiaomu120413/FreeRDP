@@ -103,9 +103,11 @@ UINT ohos_rdpgfx_end_frame(RdpgfxClientContext* context, const RDPGFX_END_FRAME_
 {
 	freerdpOhosRdpgfxBridge* bridge = ohos_rdpgfx_bridge_from_context(context);
 	pcRdpgfxEndFrame original = NULL;
+	BOOL avc420GpuCompositor = FALSE;
 	BOOL avc444GpuCompositor = FALSE;
 	UINT32 activeFrameId = 0;
 	BOOL matchedFrame = FALSE;
+	FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK avc420EndFrame = NULL;
 	FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK avc444EndFrame = NULL;
 	void* userData = NULL;
 	UINT status = ERROR_INTERNAL_ERROR;
@@ -117,11 +119,20 @@ UINT ohos_rdpgfx_end_frame(RdpgfxClientContext* context, const RDPGFX_END_FRAME_
 		matchedFrame =
 		    bridge->frameOpen && (!endFrame || (endFrame->frameId == bridge->activeFrameId));
 		bridge->frameOpen = FALSE;
+		avc420GpuCompositor = bridge->avc420GpuCompositor;
 		avc444GpuCompositor = bridge->avc444GpuCompositor;
 		original = bridge->hooks.endFrame;
+		avc420EndFrame = bridge->avc420EndFrame;
 		avc444EndFrame = bridge->avc444EndFrame;
 		userData = bridge->userData;
 		LeaveCriticalSection(&bridge->lock);
+		if (avc420GpuCompositor && !matchedFrame)
+		{
+			ohos_rdpgfx_log(bridge,
+			                "rdpgfx end frame observed for AVC420 GPU compositor: frameId=%" PRIu32
+			                " active=%" PRIu32 " matched=no",
+			                endFrame ? endFrame->frameId : 0, activeFrameId);
+		}
 		if (avc444GpuCompositor && !matchedFrame)
 		{
 			ohos_rdpgfx_log(bridge,
@@ -131,6 +142,14 @@ UINT ohos_rdpgfx_end_frame(RdpgfxClientContext* context, const RDPGFX_END_FRAME_
 		}
 	}
 	status = original ? original(context, endFrame) : ERROR_INTERNAL_ERROR;
+	if (bridge && avc420GpuCompositor && avc420EndFrame)
+	{
+		FREERDP_OHOS_RDPGFX_FRAME_INFO info = { 0 };
+		info.frameId = endFrame ? endFrame->frameId : 0;
+		info.activeFrameId = activeFrameId;
+		info.matchedFrame = matchedFrame;
+		(void)avc420EndFrame(&info, userData);
+	}
 	if (bridge && avc444GpuCompositor && avc444EndFrame)
 	{
 		FREERDP_OHOS_RDPGFX_FRAME_INFO info = { 0 };
@@ -176,6 +195,9 @@ void freerdp_ohos_rdpgfx_bridge_reset(freerdpOhosRdpgfxBridge* bridge, BOOL requ
 	bridge->requested = requested;
 	bridge->h264Requested = h264Requested;
 	bridge->gdiAttached = FALSE;
+	bridge->avc420GpuCompositor = FALSE;
+	bridge->avc420SurfaceCommand = NULL;
+	bridge->avc420EndFrame = NULL;
 	bridge->avc444GpuCompositor = FALSE;
 	bridge->avc444EndFrame = NULL;
 	bridge->avc444OutputState = NULL;
@@ -197,6 +219,15 @@ void freerdp_ohos_rdpgfx_bridge_reset(freerdpOhosRdpgfxBridge* bridge, BOOL requ
 	bridge->codecAvc444 = 0;
 	bridge->codecAvc444v2 = 0;
 	bridge->codecUnknown = 0;
+	bridge->avc420GpuCandidates = 0;
+	bridge->avc420GpuDisabled = 0;
+	bridge->avc420GpuGdiPreserved = 0;
+	bridge->avc420GpuCallbacks = 0;
+	bridge->avc420GpuCallbackReady = 0;
+	bridge->avc420GpuOutputActive = FALSE;
+	bridge->avc420GpuOutputActivations = 0;
+	bridge->avc420GpuOutputReleases = 0;
+	bridge->avc420GpuActiveSuppressedFailures = 0;
 	bridge->avc444GpuCandidates = 0;
 	bridge->avc444GpuDisabled = 0;
 	bridge->avc444GpuGdiPreserved = 0;
@@ -220,6 +251,10 @@ void freerdp_ohos_rdpgfx_bridge_reset(freerdpOhosRdpgfxBridge* bridge, BOOL requ
 	bridge->lastSurfaceId = 0;
 	bridge->lastCommandWidth = 0;
 	bridge->lastCommandHeight = 0;
+	bridge->lastAvc420FrameId = 0;
+	bridge->lastAvc420Rects = 0;
+	bridge->lastAvc420Bytes = 0;
+	bridge->lastAvc420FullSurface = FALSE;
 	bridge->lastAvc444FrameId = 0;
 	bridge->lastAvc444LC = 0;
 	bridge->lastAvc444Stream1Rects = 0;
@@ -258,17 +293,22 @@ BOOL freerdp_ohos_rdpgfx_bridge_attach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 	EnterCriticalSection(&bridge->lock);
 	if (bridge->gfx == gfx)
 	{
+		bridge->avc420GpuCompositor = config->avc420GpuCompositor;
 		bridge->avc444GpuCompositor = config->avc444GpuCompositor;
 		bridge->surfaceTargetWidth = config->surfaceTargetWidth;
 		bridge->surfaceTargetHeight = config->surfaceTargetHeight;
 		bridge->log = config->log;
+		bridge->avc420SurfaceCommand = config->avc420SurfaceCommand;
+		bridge->avc420EndFrame = config->avc420EndFrame;
 		bridge->avc444SurfaceCommand = config->avc444SurfaceCommand;
 		bridge->avc444EndFrame = config->avc444EndFrame;
 		bridge->avc444OutputState = config->avc444OutputState;
 		bridge->userData = config->userData;
 		LeaveCriticalSection(&bridge->lock);
 		ohos_rdpgfx_format_message(message, messageSize,
-		                           "OHOS rdpgfx bridge already attached: avc444GpuCompositor=%s",
+		                           "OHOS rdpgfx bridge already attached: avc420GpuCompositor=%s "
+		                           "avc444GpuCompositor=%s",
+		                           config->avc420GpuCompositor ? "on" : "off",
 		                           config->avc444GpuCompositor ? "on" : "off");
 		return TRUE;
 	}
@@ -279,10 +319,13 @@ BOOL freerdp_ohos_rdpgfx_bridge_attach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 	bridge->hooks.surfaceCommand = gfx->SurfaceCommand;
 	bridge->hooks.capsAdvertise = gfx->CapsAdvertise;
 	bridge->hooks.capsConfirm = gfx->CapsConfirm;
+	bridge->avc420GpuCompositor = config->avc420GpuCompositor;
 	bridge->avc444GpuCompositor = config->avc444GpuCompositor;
 	bridge->surfaceTargetWidth = config->surfaceTargetWidth;
 	bridge->surfaceTargetHeight = config->surfaceTargetHeight;
 	bridge->log = config->log;
+	bridge->avc420SurfaceCommand = config->avc420SurfaceCommand;
+	bridge->avc420EndFrame = config->avc420EndFrame;
 	bridge->avc444SurfaceCommand = config->avc444SurfaceCommand;
 	bridge->avc444EndFrame = config->avc444EndFrame;
 	bridge->avc444OutputState = config->avc444OutputState;
@@ -302,7 +345,9 @@ BOOL freerdp_ohos_rdpgfx_bridge_attach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 
 	ohos_rdpgfx_record_connection_caps_snapshot(bridge, gfx);
 	ohos_rdpgfx_format_message(message, messageSize,
-	                           "OHOS rdpgfx bridge attached: avc444GpuCompositor=%s",
+	                           "OHOS rdpgfx bridge attached: avc420GpuCompositor=%s "
+	                           "avc444GpuCompositor=%s",
+	                           config->avc420GpuCompositor ? "on" : "off",
 	                           config->avc444GpuCompositor ? "on" : "off");
 	return TRUE;
 }
@@ -316,6 +361,7 @@ void freerdp_ohos_rdpgfx_bridge_detach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 	FREERDP_OHOS_RDPGFX_HOOKS hooks = { 0 };
 	FREERDP_OHOS_RDPGFX_AVC444_OUTPUT_STATE_CALLBACK avc444OutputState = NULL;
 	void* userData = NULL;
+	BOOL wasAvc420OutputActive = FALSE;
 	BOOL wasAvc444OutputActive = FALSE;
 	EnterCriticalSection(&bridge->lock);
 	if (bridge->gfx && (!gfx || bridge->gfx == gfx))
@@ -331,6 +377,12 @@ void freerdp_ohos_rdpgfx_bridge_detach(freerdpOhosRdpgfxBridge* bridge, RdpgfxCl
 		bridge->gdiAttached = FALSE;
 		bridge->frameOpen = FALSE;
 		bridge->activeFrameId = 0;
+		bridge->avc420SurfaceCommand = NULL;
+		bridge->avc420EndFrame = NULL;
+		wasAvc420OutputActive = bridge->avc420GpuOutputActive;
+		bridge->avc420GpuOutputActive = FALSE;
+		if (wasAvc420OutputActive)
+			bridge->avc420GpuOutputReleases++;
 		bridge->avc444EndFrame = NULL;
 		avc444OutputState = bridge->avc444OutputState;
 		userData = bridge->userData;

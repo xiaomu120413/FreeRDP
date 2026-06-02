@@ -57,6 +57,7 @@ struct freerdp_ohos_rdpgfx_bridge
 	BOOL requested;
 	BOOL h264Requested;
 	BOOL gdiAttached;
+	BOOL avc420GpuCompositor;
 	BOOL avc444GpuCompositor;
 	UINT32 surfaceTargetWidth;
 	UINT32 surfaceTargetHeight;
@@ -65,6 +66,8 @@ struct freerdp_ohos_rdpgfx_bridge
 	RdpgfxClientContext* gfx;
 	FREERDP_OHOS_RDPGFX_HOOKS hooks;
 	FREERDP_OHOS_RDPGFX_LOG_CALLBACK log;
+	FREERDP_OHOS_RDPGFX_AVC420_SURFACE_CALLBACK avc420SurfaceCommand;
+	FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK avc420EndFrame;
 	FREERDP_OHOS_RDPGFX_AVC444_SURFACE_CALLBACK avc444SurfaceCommand;
 	FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK avc444EndFrame;
 	FREERDP_OHOS_RDPGFX_AVC444_OUTPUT_STATE_CALLBACK avc444OutputState;
@@ -85,6 +88,15 @@ struct freerdp_ohos_rdpgfx_bridge
 	UINT64 codecAvc444;
 	UINT64 codecAvc444v2;
 	UINT64 codecUnknown;
+	UINT64 avc420GpuCandidates;
+	UINT64 avc420GpuDisabled;
+	UINT64 avc420GpuGdiPreserved;
+	UINT64 avc420GpuCallbacks;
+	UINT64 avc420GpuCallbackReady;
+	BOOL avc420GpuOutputActive;
+	UINT64 avc420GpuOutputActivations;
+	UINT64 avc420GpuOutputReleases;
+	UINT64 avc420GpuActiveSuppressedFailures;
 	UINT64 avc444GpuCandidates;
 	UINT64 avc444GpuDisabled;
 	UINT64 avc444GpuGdiPreserved;
@@ -108,6 +120,10 @@ struct freerdp_ohos_rdpgfx_bridge
 	UINT32 lastSurfaceId;
 	UINT32 lastCommandWidth;
 	UINT32 lastCommandHeight;
+	UINT32 lastAvc420FrameId;
+	UINT32 lastAvc420Rects;
+	UINT32 lastAvc420Bytes;
+	BOOL lastAvc420FullSurface;
 	UINT32 lastAvc444FrameId;
 	UINT32 lastAvc444LC;
 	UINT32 lastAvc444Stream1Rects;
@@ -157,6 +173,10 @@ UINT ohos_rdpgfx_surface_command(RdpgfxClientContext* context,
                                  const RDPGFX_SURFACE_COMMAND* command);
 
 BOOL ohos_rdpgfx_record_avc444_gpu_candidate(freerdpOhosRdpgfxBridge* bridge,
+                                             RdpgfxClientContext* context,
+                                             const RDPGFX_SURFACE_COMMAND* command,
+                                             UINT* consumedStatus);
+BOOL ohos_rdpgfx_record_avc420_gpu_candidate(freerdpOhosRdpgfxBridge* bridge,
                                              RdpgfxClientContext* context,
                                              const RDPGFX_SURFACE_COMMAND* command,
                                              UINT* consumedStatus);

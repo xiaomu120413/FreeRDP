@@ -24,6 +24,14 @@ typedef struct
 
 typedef struct
 {
+	const BYTE* data;
+	UINT32 length;
+	const RECTANGLE_16* regionRects;
+	UINT32 numRegionRects;
+} FREERDP_OHOS_RDPGFX_AVC420_STREAM_INFO;
+
+typedef struct
+{
 	UINT32 codecId;
 	UINT16 surfaceId;
 	UINT32 left;
@@ -41,12 +49,30 @@ typedef struct
 
 typedef struct
 {
+	UINT32 codecId;
+	UINT16 surfaceId;
+	UINT32 left;
+	UINT32 top;
+	UINT32 width;
+	UINT32 height;
+	UINT32 targetWidth;
+	UINT32 targetHeight;
+	UINT32 frameId;
+	BOOL frameOpen;
+	BOOL fullSurface;
+	FREERDP_OHOS_RDPGFX_AVC420_STREAM_INFO stream;
+} FREERDP_OHOS_RDPGFX_AVC420_COMMAND_INFO;
+
+typedef struct
+{
 	UINT32 frameId;
 	UINT32 activeFrameId;
 	BOOL matchedFrame;
 } FREERDP_OHOS_RDPGFX_FRAME_INFO;
 
 typedef void (*FREERDP_OHOS_RDPGFX_LOG_CALLBACK)(const char* message, void* userData);
+typedef BOOL (*FREERDP_OHOS_RDPGFX_AVC420_SURFACE_CALLBACK)(
+    const FREERDP_OHOS_RDPGFX_AVC420_COMMAND_INFO* command, void* userData);
 typedef BOOL (*FREERDP_OHOS_RDPGFX_AVC444_SURFACE_CALLBACK)(
     const FREERDP_OHOS_RDPGFX_AVC444_COMMAND_INFO* command, void* userData);
 typedef BOOL (*FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK)(
@@ -57,10 +83,13 @@ typedef void (*FREERDP_OHOS_RDPGFX_AVC444_OUTPUT_STATE_CALLBACK)(BOOL active,
 
 typedef struct
 {
+	BOOL avc420GpuCompositor;
 	BOOL avc444GpuCompositor;
 	UINT32 surfaceTargetWidth;
 	UINT32 surfaceTargetHeight;
 	FREERDP_OHOS_RDPGFX_LOG_CALLBACK log;
+	FREERDP_OHOS_RDPGFX_AVC420_SURFACE_CALLBACK avc420SurfaceCommand;
+	FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK avc420EndFrame;
 	FREERDP_OHOS_RDPGFX_AVC444_SURFACE_CALLBACK avc444SurfaceCommand;
 	FREERDP_OHOS_RDPGFX_AVC444_END_FRAME_CALLBACK avc444EndFrame;
 	FREERDP_OHOS_RDPGFX_AVC444_OUTPUT_STATE_CALLBACK avc444OutputState;

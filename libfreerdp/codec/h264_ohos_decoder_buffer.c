@@ -218,11 +218,16 @@ static BOOL ohos_avcodec_copy_semiplanar(H264_CONTEXT* h264,
 	const UINT32 chromaHeight = (height + 1U) / 2U;
 	const UINT64 uvOffset = (UINT64)srcStride * srcSliceHeight;
 	const BYTE* src = slot->data;
+	const UINT32 minUvRowBytes = chromaWidth * 2U;
 
 	if (!ohos_avcodec_copy_plane_rows(h264->pYUVData[0], h264->iStride[0], src, srcStride, width,
 	                                  height, 0, slot->size))
 		return FALSE;
-	if (!ohos_avcodec_range_fits(uvOffset, (UINT64)srcStride * chromaHeight, slot->size))
+	if (srcStride < minUvRowBytes)
+		return FALSE;
+	if (!ohos_avcodec_range_fits(uvOffset,
+	                             (UINT64)srcStride * (chromaHeight - 1U) + minUvRowBytes,
+	                             slot->size))
 		return FALSE;
 
 	for (UINT32 y = 0; y < chromaHeight; y++)

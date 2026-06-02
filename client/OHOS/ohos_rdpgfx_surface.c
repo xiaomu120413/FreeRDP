@@ -106,6 +106,11 @@ UINT ohos_rdpgfx_surface_command(RdpgfxClientContext* context,
 	if (bridge && command)
 	{
 		ohos_rdpgfx_record_surface_command(bridge, command);
+		UINT avc420Status = CHANNEL_RC_OK;
+		const BOOL avc420Consumed =
+		    ohos_rdpgfx_record_avc420_gpu_candidate(bridge, context, command, &avc420Status);
+		if (avc420Consumed)
+			return avc420Status;
 		UINT avc444Status = CHANNEL_RC_OK;
 		const BOOL avc444Consumed =
 		    ohos_rdpgfx_record_avc444_gpu_candidate(bridge, context, command, &avc444Status);
