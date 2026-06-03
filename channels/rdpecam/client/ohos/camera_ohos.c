@@ -10,8 +10,6 @@ static UINT cam_ohos_enumerate(WINPR_ATTR_UNUSED ICamHal* ihal, ICamHalEnumCallb
 {
 	UINT count = 0;
 	CamOhosCameraList list;
-	if (!cam_ohos_request_camera_permission("rdpecam device enumeration"))
-		return 0;
 
 	if (cam_ohos_open_camera_list(&list))
 	{

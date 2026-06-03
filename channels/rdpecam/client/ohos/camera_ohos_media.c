@@ -156,12 +156,6 @@ INT16 cam_ohos_get_media_type_descriptions(
 	if (!supportedFormats || !mediaTypes || !nMediaTypes)
 		return -1;
 
-	if (!cam_ohos_request_camera_permission("rdpecam media type query"))
-	{
-		*nMediaTypes = 0;
-		return -1;
-	}
-
 	for (size_t formatIndex = 0; formatIndex < nSupportedFormats; formatIndex++)
 	{
 		const CAM_MEDIA_FORMAT inputFormat = supportedFormats[formatIndex].inputFormat;
