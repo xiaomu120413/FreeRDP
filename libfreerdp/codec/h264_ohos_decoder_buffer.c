@@ -438,9 +438,6 @@ FREERDP_LOCAL int ohos_avcodec_decompress_buffer(H264_CONTEXT* h264,
 	if (!h264 || !sys || !sys->decoder || !sys->started || !sys->decoderBufferMode)
 		return ohos_avcodec_request_software_fallback(h264, sys, "buffer decoder not active");
 
-	h264->pYUVData[0] = NULL;
-	h264->pYUVData[1] = NULL;
-	h264->pYUVData[2] = NULL;
 	sys->decodeCalls++;
 	expectedOutputPts = WINPR_ASSERTING_INT_CAST(int64_t, sys->decodeCalls);
 
