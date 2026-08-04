@@ -21,6 +21,38 @@ extern "C"
 
 typedef struct freerdp_ohos_session freerdpOhosSession;
 
+#define FREERDP_OHOS_SESSION_RESIZE_VERSION 1U
+
+typedef enum
+{
+	FREERDP_OHOS_SESSION_RESIZE_FAILED = 0,
+	FREERDP_OHOS_SESSION_RESIZE_SENT = 1,
+	FREERDP_OHOS_SESSION_RESIZE_DEFERRED = 2,
+	FREERDP_OHOS_SESSION_RESIZE_UNCHANGED = 3,
+	FREERDP_OHOS_SESSION_RESIZE_UNSUPPORTED = 4
+} FREERDP_OHOS_SESSION_RESIZE_STATUS;
+
+typedef struct
+{
+	uint32_t structSize;
+	uint32_t version;
+	uint32_t width;
+	uint32_t height;
+	uint32_t orientation;
+} FREERDP_OHOS_SESSION_RESIZE_REQUEST;
+
+typedef struct
+{
+	uint32_t structSize;
+	uint32_t version;
+	uint32_t status;
+	uint32_t normalizedWidth;
+	uint32_t normalizedHeight;
+	uint32_t sentWidth;
+	uint32_t sentHeight;
+	uint32_t orientation;
+} FREERDP_OHOS_SESSION_RESIZE_RESULT;
+
 typedef void (*FREERDP_OHOS_SESSION_MESSAGE_CALLBACK)(const char* message, void* userData);
 typedef void (*FREERDP_OHOS_SESSION_STATE_CALLBACK)(const char* state, void* userData);
 typedef BOOL (*FREERDP_OHOS_SESSION_CONFIGURE_CALLBACK)(
@@ -70,9 +102,9 @@ FREERDP_API BOOL freerdp_ohos_session_attach_display_control(
     freerdpOhosSession* session, DispClientContext* disp, char* message, size_t messageSize);
 FREERDP_API void freerdp_ohos_session_detach_display_control(freerdpOhosSession* session,
                                                              DispClientContext* disp);
-FREERDP_API BOOL freerdp_ohos_session_resize(freerdpOhosSession* session, UINT32 width,
-                                             UINT32 height, char* message,
-                                             size_t messageSize);
+FREERDP_API BOOL freerdp_ohos_session_resize_ex(
+    freerdpOhosSession* session, const FREERDP_OHOS_SESSION_RESIZE_REQUEST* request,
+    FREERDP_OHOS_SESSION_RESIZE_RESULT* result, char* message, size_t messageSize);
 FREERDP_API const char*
 freerdp_ohos_session_get_diagnostics(freerdpOhosSession* session);
 

@@ -6,6 +6,8 @@
 #include "ohos_session_private.h"
 
 #include <inttypes.h>
+#include <stddef.h>
+#include <string.h>
 
 static void ohos_session_display_log(const char* message, void* userData)
 {
@@ -70,39 +72,85 @@ void freerdp_ohos_session_detach_display_control(freerdpOhosSession* session,
 	                             "display-control disconnected from FreeRDP OHOS resize manager");
 }
 
-BOOL freerdp_ohos_session_resize(freerdpOhosSession* session, UINT32 width, UINT32 height,
-                                 char* message, size_t messageSize)
+static uint32_t ohos_session_resize_status(FREERDP_OHOS_DISPLAY_RESIZE_STATUS status)
 {
-	if (!ohos_session_require_connected(session, message, messageSize))
-		return FALSE;
-	if (!session->displayControl)
+	switch (status)
 	{
-		ohos_session_set_diagnostics(session, "OHOS display-control manager is not available");
-		ohos_session_copy_diagnostics(session, message, messageSize);
-		return FALSE;
+		case FREERDP_OHOS_DISPLAY_RESIZE_SENT:
+			return FREERDP_OHOS_SESSION_RESIZE_SENT;
+		case FREERDP_OHOS_DISPLAY_RESIZE_DEFERRED:
+			return FREERDP_OHOS_SESSION_RESIZE_DEFERRED;
+		case FREERDP_OHOS_DISPLAY_RESIZE_UNCHANGED:
+			return FREERDP_OHOS_SESSION_RESIZE_UNCHANGED;
+		case FREERDP_OHOS_DISPLAY_RESIZE_FAILED:
+		default:
+			return FREERDP_OHOS_SESSION_RESIZE_FAILED;
 	}
-	if (width == 0 || height == 0)
+}
+
+BOOL freerdp_ohos_session_resize_ex(
+    freerdpOhosSession* session, const FREERDP_OHOS_SESSION_RESIZE_REQUEST* request,
+    FREERDP_OHOS_SESSION_RESIZE_RESULT* result, char* message, size_t messageSize)
+{
+	const size_t requestMinimum = offsetof(FREERDP_OHOS_SESSION_RESIZE_REQUEST, orientation) +
+	                              sizeof(request->orientation);
+	const size_t resultMinimum = offsetof(FREERDP_OHOS_SESSION_RESIZE_RESULT, orientation) +
+	                             sizeof(result->orientation);
+	if (!request || !result || request->structSize < requestMinimum ||
+	    result->structSize < resultMinimum ||
+	    request->version != FREERDP_OHOS_SESSION_RESIZE_VERSION)
 	{
-		ohos_session_set_diagnostics(session, "OHOS session resize dimensions are invalid");
-		ohos_session_copy_diagnostics(session, message, messageSize);
+		if (session)
+		{
+			ohos_session_set_diagnostics(session, "OHOS session resize_ex arguments are invalid");
+			ohos_session_copy_diagnostics(session, message, messageSize);
+		}
 		return FALSE;
 	}
 
-	if (!freerdp_ohos_display_control_request_resize(session->displayControl, width, height,
-	                                                 "session resize", message, messageSize))
+	const uint32_t callerResultSize = result->structSize;
+	FREERDP_OHOS_SESSION_RESIZE_RESULT local = {
+		0,
+	};
+	local.structSize = sizeof(local);
+	local.version = FREERDP_OHOS_SESSION_RESIZE_VERSION;
+	local.status = FREERDP_OHOS_SESSION_RESIZE_FAILED;
+	local.orientation = request->orientation;
+
+	if (!ohos_session_require_connected(session, message, messageSize))
 	{
-		ohos_session_set_diagnostics(session, "%s",
-		                             message && message[0] != '\0'
-		                                 ? message
-		                                 : "display-control resize failed");
-		ohos_session_copy_diagnostics(session, message, messageSize);
-		return FALSE;
+		memcpy(result, &local, callerResultSize < sizeof(local) ? callerResultSize : sizeof(local));
+		return TRUE;
 	}
+	if (!session->displayControl)
+	{
+		local.status = FREERDP_OHOS_SESSION_RESIZE_UNSUPPORTED;
+		ohos_session_set_diagnostics(session, "OHOS display-control manager is not available");
+		ohos_session_copy_diagnostics(session, message, messageSize);
+		memcpy(result, &local, callerResultSize < sizeof(local) ? callerResultSize : sizeof(local));
+		return TRUE;
+	}
+
+	FREERDP_OHOS_DISPLAY_RESIZE_RESULT displayResult = {
+		0,
+	};
+	const BOOL accepted = freerdp_ohos_display_control_request_resize_ex(
+	    session->displayControl, request->width, request->height, request->orientation,
+	    "session resize", &displayResult, message, messageSize);
+	local.status = ohos_session_resize_status(displayResult.status);
+	local.normalizedWidth = displayResult.normalizedWidth;
+	local.normalizedHeight = displayResult.normalizedHeight;
+	local.sentWidth = displayResult.sentWidth;
+	local.sentHeight = displayResult.sentHeight;
+	local.orientation = displayResult.orientation;
+	if (!accepted)
+		local.status = FREERDP_OHOS_SESSION_RESIZE_FAILED;
 
 	ohos_session_set_diagnostics(session, "%s",
 	                             message && message[0] != '\0'
 	                                 ? message
-	                                 : "display-control resize accepted");
+	                                 : "display-control resize_ex completed");
 	ohos_session_copy_diagnostics(session, message, messageSize);
+	memcpy(result, &local, callerResultSize < sizeof(local) ? callerResultSize : sizeof(local));
 	return TRUE;
 }

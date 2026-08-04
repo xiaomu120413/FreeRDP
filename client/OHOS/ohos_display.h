@@ -16,17 +16,31 @@ extern "C"
 typedef struct freerdp_ohos_display_control freerdpOhosDisplayControl;
 typedef void (*FREERDP_OHOS_DISPLAY_LOG_CALLBACK)(const char* message, void* userData);
 
+typedef enum
+{
+	FREERDP_OHOS_DISPLAY_RESIZE_FAILED = 0,
+	FREERDP_OHOS_DISPLAY_RESIZE_SENT = 1,
+	FREERDP_OHOS_DISPLAY_RESIZE_DEFERRED = 2,
+	FREERDP_OHOS_DISPLAY_RESIZE_UNCHANGED = 3
+} FREERDP_OHOS_DISPLAY_RESIZE_STATUS;
+
+typedef struct
+{
+	FREERDP_OHOS_DISPLAY_RESIZE_STATUS status;
+	uint32_t normalizedWidth;
+	uint32_t normalizedHeight;
+	uint32_t sentWidth;
+	uint32_t sentHeight;
+	uint32_t orientation;
+} FREERDP_OHOS_DISPLAY_RESIZE_RESULT;
+
 FREERDP_API void freerdp_ohos_display_normalize_size(uint32_t width, uint32_t height,
                                                      uint32_t alignment,
                                                      uint32_t* normalizedWidth,
                                                      uint32_t* normalizedHeight);
-FREERDP_API int
-freerdp_ohos_display_build_monitor_layout(uint32_t width, uint32_t height,
-                                          DISPLAY_CONTROL_MONITOR_LAYOUT* layout);
-FREERDP_API int freerdp_ohos_display_send_monitor_layout(
-    DispClientContext* disp, uint32_t width, uint32_t height, uint32_t alignment,
-    uint32_t* sentWidth, uint32_t* sentHeight, uint32_t* channelStatus, char* message,
-    size_t messageSize);
+FREERDP_API int freerdp_ohos_display_build_monitor_layout_ex(
+    uint32_t width, uint32_t height, uint32_t orientation,
+    DISPLAY_CONTROL_MONITOR_LAYOUT* layout);
 FREERDP_API freerdpOhosDisplayControl* freerdp_ohos_display_control_new(void);
 FREERDP_API void freerdp_ohos_display_control_free(freerdpOhosDisplayControl* control);
 FREERDP_API void freerdp_ohos_display_control_reset(freerdpOhosDisplayControl* control);
@@ -40,8 +54,9 @@ FREERDP_API BOOL freerdp_ohos_display_control_attach(
     size_t messageSize);
 FREERDP_API void freerdp_ohos_display_control_detach(
     freerdpOhosDisplayControl* control, DispClientContext* disp);
-FREERDP_API BOOL freerdp_ohos_display_control_request_resize(
-    freerdpOhosDisplayControl* control, uint32_t width, uint32_t height, const char* reason,
+FREERDP_API BOOL freerdp_ohos_display_control_request_resize_ex(
+    freerdpOhosDisplayControl* control, uint32_t width, uint32_t height,
+    uint32_t orientation, const char* reason, FREERDP_OHOS_DISPLAY_RESIZE_RESULT* result,
     char* message, size_t messageSize);
 
 #ifdef __cplusplus

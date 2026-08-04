@@ -63,10 +63,18 @@ void freerdp_ohos_display_normalize_size(uint32_t width, uint32_t height, uint32
 		*normalizedHeight = height;
 }
 
-int freerdp_ohos_display_build_monitor_layout(uint32_t width, uint32_t height,
-                                              DISPLAY_CONTROL_MONITOR_LAYOUT* layout)
+static BOOL freerdp_ohos_display_orientation_valid(uint32_t orientation)
 {
-	if (!layout)
+	return orientation == ORIENTATION_LANDSCAPE || orientation == ORIENTATION_PORTRAIT ||
+	       orientation == ORIENTATION_LANDSCAPE_FLIPPED ||
+	       orientation == ORIENTATION_PORTRAIT_FLIPPED;
+}
+
+int freerdp_ohos_display_build_monitor_layout_ex(uint32_t width, uint32_t height,
+                                                 uint32_t orientation,
+                                                 DISPLAY_CONTROL_MONITOR_LAYOUT* layout)
+{
+	if (!layout || !freerdp_ohos_display_orientation_valid(orientation))
 		return 0;
 
 	freerdp_ohos_display_normalize_size(width, height, 1U, &width, &height);
@@ -78,67 +86,9 @@ int freerdp_ohos_display_build_monitor_layout(uint32_t width, uint32_t height,
 	layout->Height = height;
 	layout->PhysicalWidth = width;
 	layout->PhysicalHeight = height;
-	layout->Orientation = ORIENTATION_LANDSCAPE;
+	layout->Orientation = orientation;
 	layout->DesktopScaleFactor = 100;
 	layout->DeviceScaleFactor = 100;
-	return 1;
-}
-
-int freerdp_ohos_display_send_monitor_layout(DispClientContext* disp, uint32_t width,
-                                             uint32_t height, uint32_t alignment,
-                                             uint32_t* sentWidth, uint32_t* sentHeight,
-                                             uint32_t* channelStatus, char* message,
-                                             size_t messageSize)
-{
-	DISPLAY_CONTROL_MONITOR_LAYOUT layout;
-	UINT status = 0;
-
-	if (sentWidth)
-		*sentWidth = 0;
-	if (sentHeight)
-		*sentHeight = 0;
-	if (channelStatus)
-		*channelStatus = 0;
-
-	if (!disp || !disp->SendMonitorLayout)
-	{
-		freerdp_ohos_display_format_message(message, messageSize,
-		                                    "display-control channel is not ready (%u/%u)", 0, 0);
-		return 0;
-	}
-
-	freerdp_ohos_display_normalize_size(width, height, alignment, &width, &height);
-	if (!freerdp_ohos_display_build_monitor_layout(width, height, &layout))
-	{
-		freerdp_ohos_display_format_message(message, messageSize,
-		                                    "display-control monitor layout build failed (%u/%u)",
-		                                    width, height);
-		return 0;
-	}
-
-	status = disp->SendMonitorLayout(disp, 1, &layout);
-	if (channelStatus)
-		*channelStatus = status;
-	if (status != 0)
-	{
-		if (message && messageSize > 0)
-		{
-			if (snprintf(message, messageSize, "display-control resize failed: %u for %ux%u",
-			             status, width, height) < 0)
-				message[0] = '\0';
-			else
-				message[messageSize - 1] = '\0';
-		}
-		return 0;
-	}
-
-	if (sentWidth)
-		*sentWidth = width;
-	if (sentHeight)
-		*sentHeight = height;
-	freerdp_ohos_display_format_message(message, messageSize,
-	                                    "display-control monitor layout sent: %ux%u", width,
-	                                    height);
 	return 1;
 }
 
@@ -151,9 +101,11 @@ struct freerdp_ohos_display_control
 	BOOL hasRequestedSize;
 	uint32_t requestedWidth;
 	uint32_t requestedHeight;
+	uint32_t requestedOrientation;
 	BOOL hasSentSize;
 	uint32_t lastSentWidth;
 	uint32_t lastSentHeight;
+	uint32_t lastSentOrientation;
 	FREERDP_OHOS_DISPLAY_LOG_CALLBACK logCallback;
 	void* logUserData;
 };
@@ -169,18 +121,38 @@ static void freerdp_ohos_display_log(freerdpOhosDisplayControl* control, const c
 		control->logCallback(message, control->logUserData);
 }
 
-static BOOL freerdp_ohos_display_request_locked(freerdpOhosDisplayControl* control,
-                                                const char* reason, char* message,
-                                                size_t messageSize)
+static void freerdp_ohos_display_resize_result_reset(
+    FREERDP_OHOS_DISPLAY_RESIZE_RESULT* result, const freerdpOhosDisplayControl* control)
+{
+	if (!result)
+		return;
+
+	memset(result, 0, sizeof(*result));
+	result->status = FREERDP_OHOS_DISPLAY_RESIZE_FAILED;
+	if (control && control->hasRequestedSize)
+	{
+		result->normalizedWidth = control->requestedWidth;
+		result->normalizedHeight = control->requestedHeight;
+		result->orientation = control->requestedOrientation;
+	}
+}
+
+static BOOL freerdp_ohos_display_request_locked(
+    freerdpOhosDisplayControl* control, const char* reason,
+    FREERDP_OHOS_DISPLAY_RESIZE_RESULT* result, char* message, size_t messageSize)
 {
 	const char* safeReason = freerdp_ohos_display_reason(reason);
 	uint32_t sentWidth = 0;
 	uint32_t sentHeight = 0;
-	uint32_t channelStatus = 0;
-	char detail[192] = { 0 };
+	UINT channelStatus = CHANNEL_RC_OK;
+	DISPLAY_CONTROL_MONITOR_LAYOUT layout;
+
+	freerdp_ohos_display_resize_result_reset(result, control);
 
 	if (!control->hasRequestedSize)
 	{
+		if (result)
+			result->status = FREERDP_OHOS_DISPLAY_RESIZE_DEFERRED;
 		freerdp_ohos_display_format_message(message, messageSize,
 		                                    "display-control resize has no requested size after %s",
 		                                    safeReason);
@@ -189,6 +161,8 @@ static BOOL freerdp_ohos_display_request_locked(freerdpOhosDisplayControl* contr
 
 	if (!control->disp || !control->disp->SendMonitorLayout)
 	{
+		if (result)
+			result->status = FREERDP_OHOS_DISPLAY_RESIZE_DEFERRED;
 		freerdp_ohos_display_format_message(
 		    message, messageSize,
 		    "display-control resize pending after %s: channel not ready normalized=%ux%u alignment=%u",
@@ -198,6 +172,8 @@ static BOOL freerdp_ohos_display_request_locked(freerdpOhosDisplayControl* contr
 
 	if (!control->capsReady)
 	{
+		if (result)
+			result->status = FREERDP_OHOS_DISPLAY_RESIZE_DEFERRED;
 		freerdp_ohos_display_format_message(
 		    message, messageSize,
 		    "display-control resize pending after %s: caps not ready normalized=%ux%u alignment=%u",
@@ -206,34 +182,56 @@ static BOOL freerdp_ohos_display_request_locked(freerdpOhosDisplayControl* contr
 	}
 
 	if (control->hasSentSize && control->lastSentWidth == control->requestedWidth &&
-	    control->lastSentHeight == control->requestedHeight)
+	    control->lastSentHeight == control->requestedHeight &&
+	    control->lastSentOrientation == control->requestedOrientation)
 	{
+		if (result)
+		{
+			result->status = FREERDP_OHOS_DISPLAY_RESIZE_UNCHANGED;
+			result->sentWidth = control->lastSentWidth;
+			result->sentHeight = control->lastSentHeight;
+		}
 		freerdp_ohos_display_format_message(
 		    message, messageSize,
-		    "display-control resize unchanged after %s: %ux%u alignment=%u", safeReason,
-		    control->requestedWidth, control->requestedHeight, control->alignment);
+		    "display-control resize unchanged after %s: %ux%u orientation=%u alignment=%u",
+		    safeReason, control->requestedWidth, control->requestedHeight,
+		    control->requestedOrientation, control->alignment);
 		return TRUE;
 	}
 
-	if (!freerdp_ohos_display_send_monitor_layout(control->disp, control->requestedWidth,
-	                                             control->requestedHeight, 1U, &sentWidth,
-	                                             &sentHeight, &channelStatus, detail,
-	                                             sizeof(detail)))
+	sentWidth = control->requestedWidth;
+	sentHeight = control->requestedHeight;
+	if (!freerdp_ohos_display_build_monitor_layout_ex(sentWidth, sentHeight,
+	                                                 control->requestedOrientation, &layout))
 	{
-		if (detail[0] != '\0')
-			freerdp_ohos_display_format_message(message, messageSize, "%s", detail);
-		else
-			freerdp_ohos_display_format_message(
-			    message, messageSize, "display-control resize failed: %u", channelStatus);
+		freerdp_ohos_display_format_message(message, messageSize,
+		                                    "display-control orientation is invalid: %u",
+		                                    control->requestedOrientation);
+		return FALSE;
+	}
+
+	channelStatus = control->disp->SendMonitorLayout(control->disp, 1, &layout);
+	if (channelStatus != CHANNEL_RC_OK)
+	{
+		freerdp_ohos_display_format_message(
+		    message, messageSize, "display-control resize failed: %u", channelStatus);
 		return FALSE;
 	}
 
 	control->hasSentSize = TRUE;
 	control->lastSentWidth = sentWidth;
 	control->lastSentHeight = sentHeight;
+	control->lastSentOrientation = control->requestedOrientation;
+	if (result)
+	{
+		result->status = FREERDP_OHOS_DISPLAY_RESIZE_SENT;
+		result->sentWidth = sentWidth;
+		result->sentHeight = sentHeight;
+	}
 	freerdp_ohos_display_format_message(
-	    message, messageSize, "display-control resize requested after %s: %s alignment=%u",
-	    safeReason, detail[0] != '\0' ? detail : "monitor layout sent", control->alignment);
+	    message, messageSize,
+	    "display-control resize requested after %s: monitor layout sent %ux%u orientation=%u alignment=%u",
+	    safeReason, sentWidth, sentHeight, control->requestedOrientation, control->alignment);
 	return TRUE;
 }
 
@@ -256,8 +254,8 @@ static UINT freerdp_ohos_display_control_caps(DispClientContext* disp, UINT32 ma
 	    capsMessage, sizeof(capsMessage), "display-control caps: maxMonitors=%u areaFactor=%u/%u",
 	    maxNumMonitors, maxMonitorAreaFactorA, maxMonitorAreaFactorB);
 	if (control->hasRequestedSize)
-		(void)freerdp_ohos_display_request_locked(control, "display-control caps", resizeMessage,
-		                                          sizeof(resizeMessage));
+		(void)freerdp_ohos_display_request_locked(control, "display-control caps", NULL,
+		                                          resizeMessage, sizeof(resizeMessage));
 	LeaveCriticalSection(&control->lock);
 
 	freerdp_ohos_display_log(control, capsMessage);
@@ -301,9 +299,11 @@ void freerdp_ohos_display_control_reset(freerdpOhosDisplayControl* control)
 	control->hasRequestedSize = FALSE;
 	control->requestedWidth = 0;
 	control->requestedHeight = 0;
+	control->requestedOrientation = ORIENTATION_LANDSCAPE;
 	control->hasSentSize = FALSE;
 	control->lastSentWidth = 0;
 	control->lastSentHeight = 0;
+	control->lastSentOrientation = ORIENTATION_LANDSCAPE;
 	LeaveCriticalSection(&control->lock);
 }
 
@@ -375,14 +375,15 @@ void freerdp_ohos_display_control_detach(freerdpOhosDisplayControl* control,
 	LeaveCriticalSection(&control->lock);
 }
 
-BOOL freerdp_ohos_display_control_request_resize(freerdpOhosDisplayControl* control,
-                                                 uint32_t width, uint32_t height,
-                                                 const char* reason, char* message,
-                                                 size_t messageSize)
+BOOL freerdp_ohos_display_control_request_resize_ex(
+    freerdpOhosDisplayControl* control, uint32_t width, uint32_t height,
+    uint32_t orientation, const char* reason, FREERDP_OHOS_DISPLAY_RESIZE_RESULT* result,
+    char* message, size_t messageSize)
 {
 	uint32_t requestedWidth = width;
 	uint32_t requestedHeight = height;
 	BOOL ok = FALSE;
+	freerdp_ohos_display_resize_result_reset(result, NULL);
 
 	if (!control)
 	{
@@ -396,13 +397,21 @@ BOOL freerdp_ohos_display_control_request_resize(freerdpOhosDisplayControl* cont
 		                                    "display-control resize dimensions are invalid");
 		return FALSE;
 	}
+	if (!freerdp_ohos_display_orientation_valid(orientation))
+	{
+		freerdp_ohos_display_format_message(message, messageSize,
+		                                    "display-control orientation is invalid: %u",
+		                                    orientation);
+		return FALSE;
+	}
 
 	EnterCriticalSection(&control->lock);
 	freerdp_ohos_display_normalize_size(width, height, control->alignment, &width, &height);
 	control->hasRequestedSize = TRUE;
 	control->requestedWidth = width;
 	control->requestedHeight = height;
-	ok = freerdp_ohos_display_request_locked(control, reason, message, messageSize);
+	control->requestedOrientation = orientation;
+	ok = freerdp_ohos_display_request_locked(control, reason, result, message, messageSize);
 	if (ok && message && messageSize > 0)
 	{
 		const size_t used = strlen(message);
