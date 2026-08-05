@@ -33,6 +33,7 @@ typedef struct
 	UINT32 audioCaptureRate;
 	UINT32 audioCaptureChannels;
 	BOOL geometry;
+	BOOL penInput;
 } FREERDP_OHOS_SESSION_CONFIG;
 
 typedef struct

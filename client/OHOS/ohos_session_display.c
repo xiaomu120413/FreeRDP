@@ -88,6 +88,24 @@ static uint32_t ohos_session_resize_status(FREERDP_OHOS_DISPLAY_RESIZE_STATUS st
 	}
 }
 
+BOOL freerdp_ohos_session_set_monitor_layout(
+    freerdpOhosSession* session, const FREERDP_OHOS_MONITOR_LAYOUT_REQUEST* request,
+    char* message, size_t messageSize)
+{
+	DISPLAY_CONTROL_MONITOR_LAYOUT validated[FREERDP_OHOS_MAX_MONITORS] = { 0 };
+	if (!session || !freerdp_ohos_display_validate_monitor_layout(request, validated, message,
+	                                                              messageSize))
+		return FALSE;
+	if (!freerdp_ohos_display_control_request_monitor_layout(
+	        session->displayControl, request, "session monitor layout", message, messageSize))
+		return FALSE;
+	session->monitorCount = request->monitorCount;
+	if (request->monitorCount > 0)
+		memcpy(session->monitors, request->monitors,
+		       request->monitorCount * sizeof(session->monitors[0]));
+	return TRUE;
+}
+
 BOOL freerdp_ohos_session_resize_ex(
     freerdpOhosSession* session, const FREERDP_OHOS_SESSION_RESIZE_REQUEST* request,
     FREERDP_OHOS_SESSION_RESIZE_RESULT* result, char* message, size_t messageSize)

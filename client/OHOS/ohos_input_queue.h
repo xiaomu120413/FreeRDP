@@ -9,6 +9,7 @@
 #include <winpr/wtypes.h>
 
 #include "ohos_keyboard.h"
+#include "ohos_pen.h"
 #include "ohos_pointer.h"
 
 #ifdef __cplusplus
@@ -37,6 +38,14 @@ FREERDP_API BOOL freerdp_ohos_input_queue_enqueue_pointer(
 FREERDP_API BOOL freerdp_ohos_input_queue_enqueue_pointer_packet(
     freerdpOhosInputQueue* queue, UINT16 flags, UINT16 x, UINT16 y, char* message,
     size_t messageSize);
+FREERDP_API BOOL freerdp_ohos_input_queue_enqueue_pen(
+    freerdpOhosInputQueue* queue, const FREERDP_OHOS_POINTER_VIEWPORT* viewport,
+    const FREERDP_OHOS_PEN_EVENT* event, char* message, size_t messageSize);
+FREERDP_API void freerdp_ohos_input_queue_attach_rdpei(
+    freerdpOhosInputQueue* queue, RdpeiClientContext* rdpei);
+FREERDP_API void freerdp_ohos_input_queue_detach_rdpei(
+    freerdpOhosInputQueue* queue, RdpeiClientContext* rdpei);
+FREERDP_API BOOL freerdp_ohos_input_queue_has_rdpei(freerdpOhosInputQueue* queue);
 FREERDP_API BOOL freerdp_ohos_input_queue_enqueue_key_scancode(
     freerdpOhosInputQueue* queue, UINT32 rdpScancode, BOOL down, BOOL repeat, char* message,
     size_t messageSize);

@@ -17,6 +17,8 @@ struct freerdp_ohos_session
 	FREERDP_OHOS_KEYBOARD_STATE* keyboard;
 	freerdpOhosInputQueue* inputQueue;
 	freerdpOhosDisplayControl* displayControl;
+	uint32_t monitorCount;
+	FREERDP_OHOS_MONITOR_LAYOUT monitors[FREERDP_OHOS_MAX_MONITORS];
 	freerdpOhosLocation* location;
 	char diagnostics[512];
 };

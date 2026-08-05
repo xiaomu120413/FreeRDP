@@ -19,6 +19,7 @@
 #include <freerdp/channels/disp.h>
 #include <freerdp/channels/echo.h>
 #include <freerdp/channels/geometry.h>
+#include <freerdp/channels/rdpei.h>
 #include <freerdp/channels/location.h>
 #include <freerdp/channels/rdpecam.h>
 #include <freerdp/channels/rdpgfx.h>
@@ -196,6 +197,7 @@ FREERDP_OHOS_SESSION_CONFIG freerdp_ohos_session_config_default(void)
 	config.clipboard = TRUE;
 	config.displayControl = TRUE;
 	config.geometry = TRUE;
+	config.penInput = TRUE;
 	config.camera = TRUE;
 	config.echo = TRUE;
 	config.location = FALSE;
@@ -335,6 +337,8 @@ BOOL freerdp_ohos_session_apply_settings(rdpSettings* settings,
 	                           "SupportDisplayControl", message, messageSize) ||
 	    !ohos_session_set_bool(settings, FreeRDP_DynamicResolutionUpdate, config->displayControl,
 	                           "DynamicResolutionUpdate", message, messageSize) ||
+	    !ohos_session_set_bool(settings, FreeRDP_MultiTouchInput, config->penInput,
+	                           "MultiTouchInput", message, messageSize) ||
 	    !ohos_session_set_bool(settings, FreeRDP_SupportGraphicsPipeline, config->graphicsPipeline,
 	                           "SupportGraphicsPipeline", message, messageSize) ||
 	    !ohos_session_set_bool(settings, FreeRDP_GfxH264, h264, "GfxH264", message,
@@ -427,6 +431,14 @@ BOOL freerdp_ohos_session_add_standard_channels(rdpSettings* settings,
 	{
 		const char* params[] = { GEOMETRY_CHANNEL_NAME };
 		if (!ohos_session_add_dynamic_channel(settings, ARRAYSIZE(params), params, "geometry",
+		                                      message, messageSize))
+			return FALSE;
+	}
+
+	if (config->penInput)
+	{
+		const char* params[] = { RDPEI_CHANNEL_NAME };
+		if (!ohos_session_add_dynamic_channel(settings, ARRAYSIZE(params), params, "rdpei",
 		                                      message, messageSize))
 			return FALSE;
 	}

@@ -5,6 +5,8 @@
 
 #include "ohos_session_private.h"
 
+#include <stdio.h>
+
 #include <freerdp/input.h>
 
 BOOL freerdp_ohos_session_send_pointer(freerdpOhosSession* session,
@@ -21,6 +23,44 @@ BOOL freerdp_ohos_session_send_pointer(freerdpOhosSession* session,
 	ohos_session_set_diagnostics(session, "%s", message ? message : "pointer event queued");
 	ohos_session_copy_diagnostics(session, message, messageSize);
 	return TRUE;
+}
+
+BOOL freerdp_ohos_session_send_pen(freerdpOhosSession* session,
+                                   const FREERDP_OHOS_POINTER_VIEWPORT* viewport,
+                                   const FREERDP_OHOS_PEN_EVENT* event, char* message,
+                                   size_t messageSize)
+{
+	if (!ohos_session_require_connected(session, message, messageSize))
+		return FALSE;
+	if (!freerdp_ohos_input_queue_enqueue_pen(session->inputQueue, viewport, event, message,
+	                                         messageSize))
+		return FALSE;
+	ohos_session_set_diagnostics(session, "%s", message ? message : "pen event queued");
+	ohos_session_copy_diagnostics(session, message, messageSize);
+	return TRUE;
+}
+
+BOOL freerdp_ohos_session_attach_pen_input(freerdpOhosSession* session,
+                                           RdpeiClientContext* rdpei, char* message,
+                                           size_t messageSize)
+{
+	if (!session || !rdpei)
+	{
+		if (message && messageSize > 0)
+			(void)snprintf(message, messageSize, "OHOS pen attach arguments are invalid");
+		return FALSE;
+	}
+	freerdp_ohos_input_queue_attach_rdpei(session->inputQueue, rdpei);
+	if (message && messageSize > 0)
+		(void)snprintf(message, messageSize, "OHOS pen RDPEI channel attached");
+	return TRUE;
+}
+
+void freerdp_ohos_session_detach_pen_input(freerdpOhosSession* session,
+                                           RdpeiClientContext* rdpei)
+{
+	if (session)
+		freerdp_ohos_input_queue_detach_rdpei(session->inputQueue, rdpei);
 }
 
 BOOL freerdp_ohos_session_send_key(freerdpOhosSession* session,

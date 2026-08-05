@@ -26,7 +26,8 @@ typedef enum
 	OHOS_INPUT_PLATFORM_KEY,
 	OHOS_INPUT_PLATFORM_KEY_PACKET,
 	OHOS_INPUT_UNICODE,
-	OHOS_INPUT_FOCUS_IN
+	OHOS_INPUT_FOCUS_IN,
+	OHOS_INPUT_PEN
 } OHOS_INPUT_EVENT_TYPE;
 
 typedef struct
@@ -47,6 +48,7 @@ typedef struct
 	BOOL repeat;
 	BOOL extended;
 	BOOL synthetic;
+	FREERDP_OHOS_PEN_EVENT pen;
 } OHOS_INPUT_EVENT;
 
 struct freerdp_ohos_input_queue
@@ -55,6 +57,7 @@ struct freerdp_ohos_input_queue
 	OHOS_INPUT_EVENT events[OHOS_INPUT_QUEUE_MAX_EVENTS];
 	size_t count;
 	FREERDP_OHOS_KEYBOARD_STATE* keyboard;
+	RdpeiClientContext* rdpei;
 	FREERDP_OHOS_INPUT_QUEUE_DIAGNOSTICS stats;
 	char diagnostics[512];
 };
@@ -95,6 +98,8 @@ static const char* ohos_input_type_name(const OHOS_INPUT_EVENT* event)
 			return "platform-key-packet";
 		case OHOS_INPUT_FOCUS_IN:
 			return "focus-in";
+		case OHOS_INPUT_PEN:
+			return "pen";
 		default:
 			return "unicode";
 	}
@@ -121,7 +126,8 @@ static BOOL ohos_input_same_motion_class(const OHOS_INPUT_EVENT* lhs,
 
 static BOOL ohos_input_is_droppable(const OHOS_INPUT_EVENT* event)
 {
-	return ohos_input_is_pointer_motion(event) || ohos_input_is_pointer_wheel(event);
+	return ohos_input_is_pointer_motion(event) || ohos_input_is_pointer_wheel(event) ||
+	       (event->type == OHOS_INPUT_PEN && event->pen.action == FREERDP_OHOS_PEN_ACTION_MOVE);
 }
 
 static BOOL ohos_input_drop_oldest_pointer(freerdpOhosInputQueue* queue)
@@ -287,6 +293,66 @@ BOOL freerdp_ohos_input_queue_enqueue_pointer(freerdpOhosInputQueue* queue,
 		return FALSE;
 	return freerdp_ohos_input_queue_enqueue_pointer_packet(queue, packet.flags, packet.x,
 	                                                       packet.y, message, messageSize);
+}
+
+BOOL freerdp_ohos_input_queue_enqueue_pen(freerdpOhosInputQueue* queue,
+                                          const FREERDP_OHOS_POINTER_VIEWPORT* viewport,
+                                          const FREERDP_OHOS_PEN_EVENT* pen, char* message,
+                                          size_t messageSize)
+{
+	if (!freerdp_ohos_pen_validate(pen, message, messageSize))
+		return FALSE;
+	if (!freerdp_ohos_input_queue_has_rdpei(queue))
+	{
+		ohos_input_format(message, messageSize, "OHOS pen RDPEI channel is unavailable");
+		return FALSE;
+	}
+	FREERDP_OHOS_POINTER_EVENT pointer = { 0 };
+	pointer.action = FREERDP_OHOS_POINTER_ACTION_MOVE;
+	pointer.x = pen->x;
+	pointer.y = pen->y;
+	pointer.allowClamp = pen->allowClamp;
+	FREERDP_OHOS_POINTER_PACKET packet = { 0 };
+	if (!freerdp_ohos_pointer_build_event(viewport, &pointer, &packet, message, messageSize))
+		return FALSE;
+
+	OHOS_INPUT_EVENT event = { 0 };
+	event.type = OHOS_INPUT_PEN;
+	event.pen = *pen;
+	event.pen.x = packet.remoteX;
+	event.pen.y = packet.remoteY;
+	return ohos_input_enqueue(queue, &event, "pen event queued", message, messageSize);
+}
+
+void freerdp_ohos_input_queue_attach_rdpei(freerdpOhosInputQueue* queue,
+                                           RdpeiClientContext* rdpei)
+{
+	if (!queue)
+		return;
+	pthread_mutex_lock(&queue->mutex);
+	queue->rdpei = rdpei;
+	pthread_mutex_unlock(&queue->mutex);
+}
+
+void freerdp_ohos_input_queue_detach_rdpei(freerdpOhosInputQueue* queue,
+                                           RdpeiClientContext* rdpei)
+{
+	if (!queue)
+		return;
+	pthread_mutex_lock(&queue->mutex);
+	if (!rdpei || queue->rdpei == rdpei)
+		queue->rdpei = NULL;
+	pthread_mutex_unlock(&queue->mutex);
+}
+
+BOOL freerdp_ohos_input_queue_has_rdpei(freerdpOhosInputQueue* queue)
+{
+	if (!queue)
+		return FALSE;
+	pthread_mutex_lock(&queue->mutex);
+	const BOOL available = queue->rdpei != NULL;
+	pthread_mutex_unlock(&queue->mutex);
+	return available;
 }
 
 BOOL freerdp_ohos_input_queue_enqueue_key_scancode(freerdpOhosInputQueue* queue,
@@ -538,6 +604,10 @@ BOOL freerdp_ohos_input_queue_drain(freerdpOhosInputQueue* queue, rdpContext* co
 	}
 
 	uint32_t sent = 0;
+	RdpeiClientContext* rdpei = NULL;
+	pthread_mutex_lock(&queue->mutex);
+	rdpei = queue->rdpei;
+	pthread_mutex_unlock(&queue->mutex);
 	for (size_t index = 0; index < pendingCount; ++index)
 	{
 		const OHOS_INPUT_EVENT* event = &pending[index];
@@ -555,6 +625,8 @@ BOOL freerdp_ohos_input_queue_drain(freerdpOhosInputQueue* queue, rdpContext* co
 		else if (event->type == OHOS_INPUT_UNICODE)
 			ok = freerdp_input_send_unicode_keyboard_event(
 			    context->input, event->down ? 0 : KBD_FLAGS_RELEASE, (UINT16)event->code);
+		else if (event->type == OHOS_INPUT_PEN)
+			ok = freerdp_ohos_pen_dispatch(rdpei, &event->pen, NULL, 0);
 
 		if (ok)
 			++sent;

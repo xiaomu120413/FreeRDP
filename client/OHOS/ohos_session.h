@@ -10,8 +10,10 @@
 #include <winpr/wtypes.h>
 
 #include "ohos_ime.h"
+#include "ohos_display.h"
 #include "ohos_keyboard.h"
 #include "ohos_pointer.h"
+#include "ohos_pen.h"
 #include "ohos_session_options.h"
 
 #ifdef __cplusplus
@@ -87,6 +89,13 @@ FREERDP_API void freerdp_ohos_session_disconnect(freerdpOhosSession* session);
 FREERDP_API BOOL freerdp_ohos_session_send_pointer(
     freerdpOhosSession* session, const FREERDP_OHOS_POINTER_VIEWPORT* viewport,
     const FREERDP_OHOS_POINTER_EVENT* event, char* message, size_t messageSize);
+FREERDP_API BOOL freerdp_ohos_session_send_pen(
+    freerdpOhosSession* session, const FREERDP_OHOS_POINTER_VIEWPORT* viewport,
+    const FREERDP_OHOS_PEN_EVENT* event, char* message, size_t messageSize);
+FREERDP_API BOOL freerdp_ohos_session_attach_pen_input(
+    freerdpOhosSession* session, RdpeiClientContext* rdpei, char* message, size_t messageSize);
+FREERDP_API void freerdp_ohos_session_detach_pen_input(
+    freerdpOhosSession* session, RdpeiClientContext* rdpei);
 FREERDP_API BOOL freerdp_ohos_session_send_key(freerdpOhosSession* session,
                                                const FREERDP_OHOS_KEY_EVENT* event,
                                                char* message, size_t messageSize);
@@ -105,6 +114,9 @@ FREERDP_API void freerdp_ohos_session_detach_display_control(freerdpOhosSession*
 FREERDP_API BOOL freerdp_ohos_session_resize_ex(
     freerdpOhosSession* session, const FREERDP_OHOS_SESSION_RESIZE_REQUEST* request,
     FREERDP_OHOS_SESSION_RESIZE_RESULT* result, char* message, size_t messageSize);
+FREERDP_API BOOL freerdp_ohos_session_set_monitor_layout(
+    freerdpOhosSession* session, const FREERDP_OHOS_MONITOR_LAYOUT_REQUEST* request,
+    char* message, size_t messageSize);
 FREERDP_API const char*
 freerdp_ohos_session_get_diagnostics(freerdpOhosSession* session);
 

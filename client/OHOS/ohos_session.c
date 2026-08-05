@@ -295,6 +295,22 @@ static BOOL ohos_session_apply_options(freerdpOhosSession* session,
 	}
 	if (detail[0] != '\0')
 		ohos_session_emit_log(session, detail);
+	if (session->monitorCount > 0)
+	{
+		FREERDP_OHOS_MONITOR_LAYOUT_REQUEST request = {
+		    sizeof(FREERDP_OHOS_MONITOR_LAYOUT_REQUEST),
+		    FREERDP_OHOS_MONITOR_LAYOUT_VERSION,
+		    session->monitorCount,
+		    session->monitors
+		};
+		if (!freerdp_ohos_display_apply_monitor_settings(settings, &request, detail,
+		                                                 sizeof(detail)))
+		{
+			ohos_session_set_diagnostics(session, "%s", detail);
+			return FALSE;
+		}
+		ohos_session_emit_log(session, detail);
+	}
 	return TRUE;
 }
 
@@ -416,6 +432,17 @@ BOOL freerdp_ohos_session_connect(freerdpOhosSession* session,
 	if (!ohos_session_validate_options(session, options, message, messageSize))
 		return FALSE;
 	ohos_session_prepare_display_control(session, options->session.h264);
+	if (session->monitorCount > 0)
+	{
+		FREERDP_OHOS_MONITOR_LAYOUT_REQUEST request = {
+		    sizeof(FREERDP_OHOS_MONITOR_LAYOUT_REQUEST),
+		    FREERDP_OHOS_MONITOR_LAYOUT_VERSION,
+		    session->monitorCount,
+		    session->monitors
+		};
+		(void)freerdp_ohos_display_control_request_monitor_layout(
+		    session->displayControl, &request, "initial monitor layout", NULL, 0);
+	}
 
 	ohos_session_emit_state(session, "Configuring");
 	if (!ohos_session_configure(session, options))
