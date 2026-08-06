@@ -603,12 +603,36 @@ BOOL freerdp_ohos_display_control_request_monitor_layout(
 	                                                              messageSize))
 		return FALSE;
 	EnterCriticalSection(&control->lock);
+	if (control->monitorCount == request->monitorCount &&
+	    memcmp(control->monitors, layouts,
+	           request->monitorCount * sizeof(layouts[0])) == 0)
+	{
+		freerdp_ohos_display_format_message(
+		    message, messageSize, "display-control monitor layout unchanged after %s: count=%u",
+		    freerdp_ohos_display_reason(reason), request->monitorCount);
+		LeaveCriticalSection(&control->lock);
+		return TRUE;
+	}
 	const uint32_t previousCount = control->monitorCount;
 	DISPLAY_CONTROL_MONITOR_LAYOUT previous[FREERDP_OHOS_MAX_MONITORS] = { 0 };
 	memcpy(previous, control->monitors, previousCount * sizeof(previous[0]));
 	control->monitorCount = request->monitorCount;
+	memset(control->monitors, 0, sizeof(control->monitors));
 	memcpy(control->monitors, layouts, request->monitorCount * sizeof(layouts[0]));
-	control->hasSentSize = FALSE;
+	if (request->monitorCount == 0)
+	{
+		/* Clearing multimon is a local mode transition. The caller explicitly follows it
+		 * with the current single-surface resize, so never resend a cached size here. */
+		control->lastSentMonitorCount = 0;
+		memset(control->lastSentMonitors, 0, sizeof(control->lastSentMonitors));
+		control->hasSentSize = FALSE;
+		freerdp_ohos_display_format_message(
+		    message, messageSize,
+		    "display-control multimon snapshot cleared after %s: awaiting single resize",
+		    freerdp_ohos_display_reason(reason));
+		LeaveCriticalSection(&control->lock);
+		return TRUE;
+	}
 	const BOOL ok = freerdp_ohos_display_request_locked(control, reason, NULL, message,
 	                                                    messageSize);
 	if (!ok)
@@ -616,8 +640,6 @@ BOOL freerdp_ohos_display_control_request_monitor_layout(
 		control->monitorCount = previousCount;
 		memcpy(control->monitors, previous, previousCount * sizeof(previous[0]));
 	}
-	else if (request->monitorCount == 0)
-		control->lastSentMonitorCount = 0;
 	LeaveCriticalSection(&control->lock);
 	return ok;
 }
