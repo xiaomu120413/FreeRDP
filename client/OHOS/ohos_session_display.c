@@ -152,9 +152,17 @@ BOOL freerdp_ohos_session_resize_ex(
 	FREERDP_OHOS_DISPLAY_RESIZE_RESULT displayResult = {
 		0,
 	};
-	const BOOL accepted = freerdp_ohos_display_control_request_resize_ex(
-	    session->displayControl, request->width, request->height, request->orientation,
-	    "session resize", &displayResult, message, messageSize);
+	const size_t metricsMinimum = offsetof(FREERDP_OHOS_SESSION_RESIZE_REQUEST,
+	                                      deviceScaleFactor) +
+	                              sizeof(request->deviceScaleFactor);
+	const BOOL hasMetrics = request->structSize >= metricsMinimum;
+	const BOOL accepted = freerdp_ohos_display_control_request_resize_layout_ex(
+	    session->displayControl, request->width, request->height,
+	    hasMetrics ? request->physicalWidth : 0,
+	    hasMetrics ? request->physicalHeight : 0, request->orientation,
+	    hasMetrics ? request->desktopScaleFactor : 100,
+	    hasMetrics ? request->deviceScaleFactor : 100, "session resize", &displayResult,
+	    message, messageSize);
 	local.status = ohos_session_resize_status(displayResult.status);
 	local.normalizedWidth = displayResult.normalizedWidth;
 	local.normalizedHeight = displayResult.normalizedHeight;

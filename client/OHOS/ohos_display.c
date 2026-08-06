@@ -101,7 +101,8 @@ BOOL freerdp_ohos_display_validate_monitor_layout(
 		    input->physicalHeight < DISPLAY_CONTROL_MIN_PHYSICAL_MONITOR_HEIGHT ||
 		    input->physicalHeight > DISPLAY_CONTROL_MAX_PHYSICAL_MONITOR_HEIGHT ||
 		    input->desktopScaleFactor < 100 || input->desktopScaleFactor > 500 ||
-		    input->deviceScaleFactor < 100 || input->deviceScaleFactor > 500)
+		    (input->deviceScaleFactor != 100 && input->deviceScaleFactor != 140 &&
+		     input->deviceScaleFactor != 180))
 		{
 			freerdp_ohos_display_format_message(message, messageSize,
 			                                    "OHOS monitor layout[%u] is invalid", index);
@@ -213,7 +214,11 @@ struct freerdp_ohos_display_control
 	BOOL hasRequestedSize;
 	uint32_t requestedWidth;
 	uint32_t requestedHeight;
+	uint32_t requestedPhysicalWidth;
+	uint32_t requestedPhysicalHeight;
 	uint32_t requestedOrientation;
+	uint32_t requestedDesktopScaleFactor;
+	uint32_t requestedDeviceScaleFactor;
 	BOOL hasSentSize;
 	uint32_t lastSentWidth;
 	uint32_t lastSentHeight;
@@ -311,6 +316,13 @@ static BOOL freerdp_ohos_display_request_locked(
 		    memcmp(control->lastSentMonitors, control->monitors,
 		           control->monitorCount * sizeof(control->monitors[0])) == 0)
 		{
+			if (result)
+			{
+				result->status = FREERDP_OHOS_DISPLAY_RESIZE_UNCHANGED;
+				result->sentWidth = control->monitors[0].Width;
+				result->sentHeight = control->monitors[0].Height;
+				result->orientation = control->monitors[0].Orientation;
+			}
 			freerdp_ohos_display_format_message(message, messageSize,
 			                                    "display-control monitor layout unchanged after %s: count=%u",
 			                                    safeReason, control->monitorCount);
@@ -328,6 +340,13 @@ static BOOL freerdp_ohos_display_request_locked(
 		control->lastSentMonitorCount = control->monitorCount;
 		memcpy(control->lastSentMonitors, control->monitors,
 		       control->monitorCount * sizeof(control->monitors[0]));
+		if (result)
+		{
+			result->status = FREERDP_OHOS_DISPLAY_RESIZE_SENT;
+			result->sentWidth = control->monitors[0].Width;
+			result->sentHeight = control->monitors[0].Height;
+			result->orientation = control->monitors[0].Orientation;
+		}
 		freerdp_ohos_display_format_message(message, messageSize,
 		                                    "display-control monitor layout sent after %s: count=%u",
 		                                    safeReason, control->monitorCount);
@@ -362,6 +381,10 @@ static BOOL freerdp_ohos_display_request_locked(
 		                                    control->requestedOrientation);
 		return FALSE;
 	}
+	layout.PhysicalWidth = control->requestedPhysicalWidth;
+	layout.PhysicalHeight = control->requestedPhysicalHeight;
+	layout.DesktopScaleFactor = control->requestedDesktopScaleFactor;
+	layout.DeviceScaleFactor = control->requestedDeviceScaleFactor;
 
 	channelStatus = control->disp->SendMonitorLayout(control->disp, 1, &layout);
 	if (channelStatus != CHANNEL_RC_OK)
@@ -453,7 +476,11 @@ void freerdp_ohos_display_control_reset(freerdpOhosDisplayControl* control)
 	control->hasRequestedSize = FALSE;
 	control->requestedWidth = 0;
 	control->requestedHeight = 0;
+	control->requestedPhysicalWidth = 0;
+	control->requestedPhysicalHeight = 0;
 	control->requestedOrientation = ORIENTATION_LANDSCAPE;
+	control->requestedDesktopScaleFactor = 100;
+	control->requestedDeviceScaleFactor = 100;
 	control->hasSentSize = FALSE;
 	control->lastSentWidth = 0;
 	control->lastSentHeight = 0;
@@ -539,6 +566,17 @@ BOOL freerdp_ohos_display_control_request_resize_ex(
     uint32_t orientation, const char* reason, FREERDP_OHOS_DISPLAY_RESIZE_RESULT* result,
     char* message, size_t messageSize)
 {
+	return freerdp_ohos_display_control_request_resize_layout_ex(
+	    control, width, height, 0, 0, orientation, 100, 100, reason, result, message,
+	    messageSize);
+}
+
+BOOL freerdp_ohos_display_control_request_resize_layout_ex(
+    freerdpOhosDisplayControl* control, uint32_t width, uint32_t height,
+    uint32_t physicalWidth, uint32_t physicalHeight, uint32_t orientation,
+    uint32_t desktopScaleFactor, uint32_t deviceScaleFactor, const char* reason,
+    FREERDP_OHOS_DISPLAY_RESIZE_RESULT* result, char* message, size_t messageSize)
+{
 	uint32_t requestedWidth = width;
 	uint32_t requestedHeight = height;
 	BOOL ok = FALSE;
@@ -563,6 +601,21 @@ BOOL freerdp_ohos_display_control_request_resize_ex(
 		                                    orientation);
 		return FALSE;
 	}
+	if (physicalWidth == 0)
+		physicalWidth = width;
+	if (physicalHeight == 0)
+		physicalHeight = height;
+	if (physicalWidth < DISPLAY_CONTROL_MIN_PHYSICAL_MONITOR_WIDTH ||
+	    physicalWidth > DISPLAY_CONTROL_MAX_PHYSICAL_MONITOR_WIDTH ||
+	    physicalHeight < DISPLAY_CONTROL_MIN_PHYSICAL_MONITOR_HEIGHT ||
+	    physicalHeight > DISPLAY_CONTROL_MAX_PHYSICAL_MONITOR_HEIGHT ||
+	    desktopScaleFactor < 100 || desktopScaleFactor > 500 ||
+	    (deviceScaleFactor != 100 && deviceScaleFactor != 140 && deviceScaleFactor != 180))
+	{
+		freerdp_ohos_display_format_message(message, messageSize,
+		                                    "display-control resize metrics are invalid");
+		return FALSE;
+	}
 
 	EnterCriticalSection(&control->lock);
 	if (control->monitorCount > 1)
@@ -580,7 +633,21 @@ BOOL freerdp_ohos_display_control_request_resize_ex(
 	control->hasRequestedSize = TRUE;
 	control->requestedWidth = width;
 	control->requestedHeight = height;
+	control->requestedPhysicalWidth = physicalWidth;
+	control->requestedPhysicalHeight = physicalHeight;
 	control->requestedOrientation = orientation;
+	control->requestedDesktopScaleFactor = desktopScaleFactor;
+	control->requestedDeviceScaleFactor = deviceScaleFactor;
+	if (control->monitorCount == 1)
+	{
+		control->monitors[0].Width = width;
+		control->monitors[0].Height = height;
+		control->monitors[0].PhysicalWidth = physicalWidth;
+		control->monitors[0].PhysicalHeight = physicalHeight;
+		control->monitors[0].Orientation = orientation;
+		control->monitors[0].DesktopScaleFactor = desktopScaleFactor;
+		control->monitors[0].DeviceScaleFactor = deviceScaleFactor;
+	}
 	ok = freerdp_ohos_display_request_locked(control, reason, result, message, messageSize);
 	if (ok && message && messageSize > 0)
 	{
@@ -603,6 +670,12 @@ BOOL freerdp_ohos_display_control_request_monitor_layout(
 	                                                              messageSize))
 		return FALSE;
 	EnterCriticalSection(&control->lock);
+	if (request->monitorCount == 1)
+	{
+		freerdp_ohos_display_normalize_size(layouts[0].Width, layouts[0].Height,
+		                                     control->alignment, &layouts[0].Width,
+		                                     &layouts[0].Height);
+	}
 	if (control->monitorCount == request->monitorCount &&
 	    memcmp(control->monitors, layouts,
 	           request->monitorCount * sizeof(layouts[0])) == 0)

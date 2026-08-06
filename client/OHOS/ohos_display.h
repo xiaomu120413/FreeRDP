@@ -92,6 +92,11 @@ FREERDP_API BOOL freerdp_ohos_display_control_request_resize_ex(
     freerdpOhosDisplayControl* control, uint32_t width, uint32_t height,
     uint32_t orientation, const char* reason, FREERDP_OHOS_DISPLAY_RESIZE_RESULT* result,
     char* message, size_t messageSize);
+FREERDP_API BOOL freerdp_ohos_display_control_request_resize_layout_ex(
+    freerdpOhosDisplayControl* control, uint32_t width, uint32_t height,
+    uint32_t physicalWidth, uint32_t physicalHeight, uint32_t orientation,
+    uint32_t desktopScaleFactor, uint32_t deviceScaleFactor, const char* reason,
+    FREERDP_OHOS_DISPLAY_RESIZE_RESULT* result, char* message, size_t messageSize);
 FREERDP_API BOOL freerdp_ohos_display_control_request_monitor_layout(
     freerdpOhosDisplayControl* control, const FREERDP_OHOS_MONITOR_LAYOUT_REQUEST* request,
     const char* reason, char* message, size_t messageSize);

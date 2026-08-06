@@ -41,6 +41,10 @@ typedef struct
 	uint32_t width;
 	uint32_t height;
 	uint32_t orientation;
+	uint32_t physicalWidth;
+	uint32_t physicalHeight;
+	uint32_t desktopScaleFactor;
+	uint32_t deviceScaleFactor;
 } FREERDP_OHOS_SESSION_RESIZE_REQUEST;
 
 typedef struct
